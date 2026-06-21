@@ -20,13 +20,13 @@ module.exports = {
     }
 
     const guildId = message.guild.id;
-    const state = getSeasonState(guildId);
+    const state = await getSeasonState(guildId);
 
     if (!state.locked) {
       return message.reply('⚠️ La season ya está abierta.');
     }
 
-    const nextState = openEconomySeason(guildId, {
+    const nextState = await openEconomySeason(guildId, {
       by: message.author.id,
       at: Date.now(),
     });

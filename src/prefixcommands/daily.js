@@ -13,10 +13,10 @@ module.exports = {
   async execute(message) {
     const guildId = message.guild.id;
     const userId = message.author.id;
-    const config = getGuildConfig(guildId);
-    const balance = getUserBalance(guildId, userId);
+    const config = await getGuildConfig(guildId);
+    const balance = await getUserBalance(guildId, userId);
 
-    const remaining = getRemainingCooldown(guildId, userId, 'daily', config.dailyCooldownMs);
+    const remaining = await getRemainingCooldown(guildId, userId, 'daily', config.dailyCooldownMs);
     if (remaining > 0) {
       const embed = new EmbedBuilder()
         .setTitle('⏳ Daily en cooldown')
@@ -40,10 +40,10 @@ module.exports = {
     const streakBonus = Math.floor((rawStreakBonus / Math.max(1, rawTotalReward)) * totalReward);
     const baseDaily = Math.max(0, totalReward - streakBonus);
 
-    addToWallet(guildId, userId, totalReward);
-    setDailyProgress(guildId, userId, currentStreak, Date.now());
+    await addToWallet(guildId, userId, totalReward);
+    await setDailyProgress(guildId, userId, currentStreak, Date.now());
 
-    setCooldown(guildId, userId, 'daily', Date.now());
+    await setCooldown(guildId, userId, 'daily', Date.now());
 
     const embed = new EmbedBuilder()
       .setTitle('🎁 Daily reclamado')

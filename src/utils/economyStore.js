@@ -1,12 +1,4 @@
-const fs = require('fs');
-const path = require('path');
-
-const usersPath = path.join(__dirname, '../economy-users.json');
-const configPath = path.join(__dirname, '../economy-config.json');
-const shopPath = path.join(__dirname, '../economy-shop.json');
-const cooldownsPath = path.join(__dirname, '../economy-cooldowns.json');
-const robberyPath = path.join(__dirname, '../economy-robbery.json');
-const robberyLogsPath = path.join(__dirname, '../economy-robbery-logs.json');
+const { query } = require('./db');
 
 const DEFAULT_ROBBERY_VICTIM_COOLDOWN_MS = 45 * 60 * 1000;
 
@@ -26,99 +18,103 @@ const DEFAULT_CONFIG = {
   workCooldownMs: 3_600_000,
 };
 
-function ensureFile(filePath, fallback) {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(fallback, null, 2));
-  }
-}
-
-function readJson(filePath, fallback = {}) {
-  ensureFile(filePath, fallback);
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
-function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-}
-
-function ensureGuildConfig(guildId) {
-  const all = readJson(configPath, {});
-  if (!all[guildId]) {
-    all[guildId] = { ...DEFAULT_CONFIG };
-    writeJson(configPath, all);
-  }
-  return all[guildId];
-}
-
-function getGuildConfig(guildId) {
-  const config = ensureGuildConfig(guildId);
+function rowToConfig(row) {
+  if (!row) return { ...DEFAULT_CONFIG };
   return {
-    ...DEFAULT_CONFIG,
-    ...config,
+    currencyEmoji: row.currency_emoji ?? DEFAULT_CONFIG.currencyEmoji,
+    currencyName: row.currency_name ?? DEFAULT_CONFIG.currencyName,
     messageReward: {
-      ...DEFAULT_CONFIG.messageReward,
-      ...(config.messageReward || {}),
+      enabled: row.message_reward_enabled === undefined ? DEFAULT_CONFIG.messageReward.enabled : Boolean(row.message_reward_enabled),
+      min: row.message_reward_min ?? DEFAULT_CONFIG.messageReward.min,
+      max: row.message_reward_max ?? DEFAULT_CONFIG.messageReward.max,
+      cooldownMs: Number(row.message_reward_cooldown_ms ?? DEFAULT_CONFIG.messageReward.cooldownMs),
     },
+    dailyReward: Number(row.daily_reward ?? DEFAULT_CONFIG.dailyReward),
+    workRewardMin: Number(row.work_reward_min ?? DEFAULT_CONFIG.workRewardMin),
+    workRewardMax: Number(row.work_reward_max ?? DEFAULT_CONFIG.workRewardMax),
+    dailyCooldownMs: Number(row.daily_cooldown_ms ?? DEFAULT_CONFIG.dailyCooldownMs),
+    workCooldownMs: Number(row.work_cooldown_ms ?? DEFAULT_CONFIG.workCooldownMs),
   };
 }
 
-function setCurrencyEmoji(guildId, emoji) {
-  const all = readJson(configPath, {});
-  const current = getGuildConfig(guildId);
-  all[guildId] = {
-    ...current,
-    currencyEmoji: emoji,
-  };
-  writeJson(configPath, all);
-  return all[guildId];
+async function ensureGuildConfig(guildId) {
+  const [rows] = await query('SELECT * FROM economy_config WHERE guild_id = ?', [guildId]);
+  if (rows.length) return rowToConfig(rows[0]);
+
+  await query(
+    `INSERT INTO economy_config (guild_id, currency_emoji, currency_name, message_reward_enabled, message_reward_min, message_reward_max, message_reward_cooldown_ms, daily_reward, work_reward_min, work_reward_max, daily_cooldown_ms, work_cooldown_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE guild_id = guild_id`,
+    [
+      guildId,
+      DEFAULT_CONFIG.currencyEmoji,
+      DEFAULT_CONFIG.currencyName,
+      1,
+      DEFAULT_CONFIG.messageReward.min,
+      DEFAULT_CONFIG.messageReward.max,
+      DEFAULT_CONFIG.messageReward.cooldownMs,
+      DEFAULT_CONFIG.dailyReward,
+      DEFAULT_CONFIG.workRewardMin,
+      DEFAULT_CONFIG.workRewardMax,
+      DEFAULT_CONFIG.dailyCooldownMs,
+      DEFAULT_CONFIG.workCooldownMs,
+    ]
+  );
+  return { ...DEFAULT_CONFIG };
 }
 
-function ensureUserRecord(guildId, userId) {
-  const all = readJson(usersPath, {});
-  if (!all[guildId]) all[guildId] = {};
-  if (!all[guildId][userId]) {
-    all[guildId][userId] = {
-      wallet: 0,
-      bank: 0,
-      totalEarned: 0,
-      totalSpent: 0,
-      dailyStreak: 0,
-      lastDailyAt: 0,
-    };
-  }
-
-  if (typeof all[guildId][userId].bank !== 'number') {
-    all[guildId][userId].bank = Number(all[guildId][userId].bank) || 0;
-    writeJson(usersPath, all);
-  }
-
-  return all[guildId][userId];
+async function getGuildConfig(guildId) {
+  return ensureGuildConfig(guildId);
 }
 
-function getUserBalance(guildId, userId) {
-  const record = ensureUserRecord(guildId, userId);
+async function setCurrencyEmoji(guildId, emoji) {
+  await ensureGuildConfig(guildId);
+  await query('UPDATE economy_config SET currency_emoji = ? WHERE guild_id = ?', [emoji, guildId]);
+  return getGuildConfig(guildId);
+}
+
+async function ensureUserRecord(guildId, userId) {
+  const [rows] = await query('SELECT * FROM economy_users WHERE guild_id = ? AND user_id = ?', [guildId, userId]);
+  if (rows.length) return rows[0];
+
+  await query(
+    `INSERT INTO economy_users (guild_id, user_id, wallet, bank, total_earned, total_spent, daily_streak, last_daily_at)
+     VALUES (?, ?, 0, 0, 0, 0, 0, 0)
+     ON DUPLICATE KEY UPDATE guild_id = guild_id`,
+    [guildId, userId]
+  );
+  const [created] = await query('SELECT * FROM economy_users WHERE guild_id = ? AND user_id = ?', [guildId, userId]);
+  return created[0];
+}
+
+async function getUserBalance(guildId, userId) {
+  const record = await ensureUserRecord(guildId, userId);
   const wallet = Number(record.wallet) || 0;
   const bank = Number(record.bank) || 0;
   return {
     wallet,
     bank,
     total: wallet + bank,
-    totalEarned: Number(record.totalEarned) || 0,
-    totalSpent: Number(record.totalSpent) || 0,
-    dailyStreak: Number(record.dailyStreak) || 0,
-    lastDailyAt: Number(record.lastDailyAt) || 0,
+    totalEarned: Number(record.total_earned) || 0,
+    totalSpent: Number(record.total_spent) || 0,
+    dailyStreak: Number(record.daily_streak) || 0,
+    lastDailyAt: Number(record.last_daily_at) || 0,
   };
 }
 
-function updateUser(guildId, userId, updater) {
-  const all = readJson(usersPath, {});
-  if (!all[guildId]) all[guildId] = {};
-  if (!all[guildId][userId]) {
-    all[guildId][userId] = { wallet: 0, bank: 0, totalEarned: 0, totalSpent: 0, dailyStreak: 0, lastDailyAt: 0 };
-  }
+async function updateUser(guildId, userId, updater) {
+  const current = await ensureUserRecord(guildId, userId);
+  const currentNormalized = {
+    wallet: Number(current.wallet) || 0,
+    bank: Number(current.bank) || 0,
+    totalEarned: Number(current.total_earned) || 0,
+    totalSpent: Number(current.total_spent) || 0,
+    dailyStreak: Number(current.daily_streak) || 0,
+    lastDailyAt: Number(current.last_daily_at) || 0,
+  };
 
-  const next = updater({ ...all[guildId][userId] }) || all[guildId][userId];
-  all[guildId][userId] = {
+  const next = updater({ ...currentNormalized }) || currentNormalized;
+  const clean = {
     wallet: Math.max(0, Math.floor(next.wallet || 0)),
     bank: Math.max(0, Math.floor(next.bank || 0)),
     totalEarned: Math.max(0, Math.floor(next.totalEarned || 0)),
@@ -127,11 +123,23 @@ function updateUser(guildId, userId, updater) {
     lastDailyAt: Math.max(0, Math.floor(next.lastDailyAt || 0)),
   };
 
-  writeJson(usersPath, all);
-  return all[guildId][userId];
+  await query(
+    `UPDATE economy_users SET wallet = ?, bank = ?, total_earned = ?, total_spent = ?, daily_streak = ?, last_daily_at = ?
+     WHERE guild_id = ? AND user_id = ?`,
+    [clean.wallet, clean.bank, clean.totalEarned, clean.totalSpent, clean.dailyStreak, clean.lastDailyAt, guildId, userId]
+  );
+
+  return {
+    wallet: clean.wallet,
+    bank: clean.bank,
+    total_earned: clean.totalEarned,
+    total_spent: clean.totalSpent,
+    daily_streak: clean.dailyStreak,
+    last_daily_at: clean.lastDailyAt,
+  };
 }
 
-function addToWallet(guildId, userId, amount) {
+async function addToWallet(guildId, userId, amount) {
   const cleanAmount = Math.max(0, Math.floor(amount || 0));
   return updateUser(guildId, userId, current => ({
     ...current,
@@ -140,7 +148,7 @@ function addToWallet(guildId, userId, amount) {
   }));
 }
 
-function addToWalletNoStats(guildId, userId, amount) {
+async function addToWalletNoStats(guildId, userId, amount) {
   const cleanAmount = Math.max(0, Math.floor(amount || 0));
   return updateUser(guildId, userId, current => ({
     ...current,
@@ -148,7 +156,7 @@ function addToWalletNoStats(guildId, userId, amount) {
   }));
 }
 
-function setWalletNoStats(guildId, userId, amount) {
+async function setWalletNoStats(guildId, userId, amount) {
   const cleanAmount = Math.max(0, Math.floor(amount || 0));
   return updateUser(guildId, userId, current => ({
     ...current,
@@ -156,7 +164,7 @@ function setWalletNoStats(guildId, userId, amount) {
   }));
 }
 
-function removeFromWallet(guildId, userId, amount) {
+async function removeFromWallet(guildId, userId, amount) {
   const cleanAmount = Math.max(0, Math.floor(amount || 0));
   return updateUser(guildId, userId, current => ({
     ...current,
@@ -165,27 +173,27 @@ function removeFromWallet(guildId, userId, amount) {
   }));
 }
 
-function canAfford(guildId, userId, amount) {
-  const balance = getUserBalance(guildId, userId);
+async function canAfford(guildId, userId, amount) {
+  const balance = await getUserBalance(guildId, userId);
   return balance.wallet >= amount;
 }
 
-function transferWallet(guildId, fromUserId, toUserId, amount) {
+async function transferWallet(guildId, fromUserId, toUserId, amount) {
   const cleanAmount = Math.max(0, Math.floor(amount || 0));
   if (!cleanAmount) return false;
-  if (!canAfford(guildId, fromUserId, cleanAmount)) return false;
+  if (!(await canAfford(guildId, fromUserId, cleanAmount))) return false;
 
-  removeFromWallet(guildId, fromUserId, cleanAmount);
-  addToWallet(guildId, toUserId, cleanAmount);
+  await removeFromWallet(guildId, fromUserId, cleanAmount);
+  await addToWallet(guildId, toUserId, cleanAmount);
   return true;
 }
 
-function depositToBank(guildId, userId, amount) {
+async function depositToBank(guildId, userId, amount) {
   const cleanAmount = Math.max(0, Math.floor(amount || 0));
   if (!cleanAmount) return 0;
 
   let deposited = 0;
-  updateUser(guildId, userId, current => {
+  await updateUser(guildId, userId, current => {
     const wallet = Number(current.wallet) || 0;
     const bank = Number(current.bank) || 0;
     deposited = Math.min(cleanAmount, wallet);
@@ -199,12 +207,12 @@ function depositToBank(guildId, userId, amount) {
   return deposited;
 }
 
-function withdrawFromBank(guildId, userId, amount) {
+async function withdrawFromBank(guildId, userId, amount) {
   const cleanAmount = Math.max(0, Math.floor(amount || 0));
   if (!cleanAmount) return 0;
 
   let withdrawn = 0;
-  updateUser(guildId, userId, current => {
+  await updateUser(guildId, userId, current => {
     const wallet = Number(current.wallet) || 0;
     const bank = Number(current.bank) || 0;
     withdrawn = Math.min(cleanAmount, bank);
@@ -218,7 +226,7 @@ function withdrawFromBank(guildId, userId, amount) {
   return withdrawn;
 }
 
-function removeFromBank(guildId, userId, amount) {
+async function removeFromBank(guildId, userId, amount) {
   const cleanAmount = Math.max(0, Math.floor(amount || 0));
   if (!cleanAmount) return 0;
 
@@ -229,7 +237,7 @@ function removeFromBank(guildId, userId, amount) {
   }));
 }
 
-function setDailyProgress(guildId, userId, streak, lastDailyAt) {
+async function setDailyProgress(guildId, userId, streak, lastDailyAt) {
   return updateUser(guildId, userId, current => ({
     ...current,
     dailyStreak: Math.max(0, Math.floor(streak || 0)),
@@ -237,41 +245,46 @@ function setDailyProgress(guildId, userId, streak, lastDailyAt) {
   }));
 }
 
-function getLeaderboard(guildId, limit = 10, offset = 0) {
-  const all = readJson(usersPath, {});
-  const guildUsers = all[guildId] || {};
+async function getLeaderboard(guildId, limit = 10, offset = 0) {
   const safeLimit = Math.max(1, Math.floor(Number(limit) || 10));
   const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
 
-  return Object.entries(guildUsers)
-    .map(([userId, data]) => ({
-      userId,
-      wallet: Number(data.wallet) || 0,
-      bank: Number(data.bank) || 0,
-      total: (Number(data.wallet) || 0) + (Number(data.bank) || 0),
-      totalEarned: Number(data.totalEarned) || 0,
-      totalSpent: Number(data.totalSpent) || 0,
-    }))
-    .sort((a, b) => b.total - a.total)
-    .slice(safeOffset, safeOffset + safeLimit);
+  const [rows] = await query(
+    `SELECT user_id, wallet, bank, total_earned, total_spent FROM economy_users
+     WHERE guild_id = ? ORDER BY (wallet + bank) DESC LIMIT ? OFFSET ?`,
+    [guildId, safeLimit, safeOffset]
+  );
+
+  return rows.map(row => ({
+    userId: row.user_id,
+    wallet: Number(row.wallet) || 0,
+    bank: Number(row.bank) || 0,
+    total: (Number(row.wallet) || 0) + (Number(row.bank) || 0),
+    totalEarned: Number(row.total_earned) || 0,
+    totalSpent: Number(row.total_spent) || 0,
+  }));
 }
 
-function getCooldown(guildId, userId, key) {
-  const all = readJson(cooldownsPath, {});
-  return Number(all[guildId]?.[userId]?.[key]) || 0;
+async function getCooldown(guildId, userId, key) {
+  const [rows] = await query(
+    'SELECT timestamp FROM economy_cooldowns WHERE guild_id = ? AND user_id = ? AND action = ?',
+    [guildId, userId, key]
+  );
+  return rows.length ? Number(rows[0].timestamp) || 0 : 0;
 }
 
-function setCooldown(guildId, userId, key, value) {
-  const all = readJson(cooldownsPath, {});
-  if (!all[guildId]) all[guildId] = {};
-  if (!all[guildId][userId]) all[guildId][userId] = {};
+async function setCooldown(guildId, userId, key, value) {
   const numericValue = Number(value);
-  all[guildId][userId][key] = Number.isFinite(numericValue) ? numericValue : Date.now();
-  writeJson(cooldownsPath, all);
+  const clean = Number.isFinite(numericValue) ? numericValue : Date.now();
+  await query(
+    `INSERT INTO economy_cooldowns (guild_id, user_id, action, timestamp) VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE timestamp = VALUES(timestamp)`,
+    [guildId, userId, key, clean]
+  );
 }
 
-function getRemainingCooldown(guildId, userId, key, cooldownMs) {
-  const last = getCooldown(guildId, userId, key);
+async function getRemainingCooldown(guildId, userId, key, cooldownMs) {
+  const last = await getCooldown(guildId, userId, key);
   const remaining = Math.max(0, cooldownMs - (Date.now() - last));
   return remaining;
 }
@@ -282,161 +295,64 @@ function randomInt(min, max) {
   return Math.floor(Math.random() * (high - low + 1)) + low;
 }
 
-function tryGrantMessageReward(guildId, userId) {
-  const config = getGuildConfig(guildId);
+async function tryGrantMessageReward(guildId, userId) {
+  const config = await getGuildConfig(guildId);
   if (!config.messageReward?.enabled) {
     return { granted: false, reason: 'disabled' };
   }
 
-  const remaining = getRemainingCooldown(guildId, userId, 'message', config.messageReward.cooldownMs);
+  const remaining = await getRemainingCooldown(guildId, userId, 'message', config.messageReward.cooldownMs);
   if (remaining > 0) {
     return { granted: false, reason: 'cooldown', remaining };
   }
 
   const amount = randomInt(config.messageReward.min, config.messageReward.max);
-  addToWallet(guildId, userId, amount);
-  setCooldown(guildId, userId, 'message', Date.now());
+  await addToWallet(guildId, userId, amount);
+  await setCooldown(guildId, userId, 'message', Date.now());
 
   return { granted: true, amount };
 }
 
-function ensureGuildShopData(rawGuildData = {}) {
-  const guildData = { ...rawGuildData };
-  let changed = false;
-
-  if (!guildData.roles) {
-    guildData.roles = {};
-    changed = true;
-  }
-
-  if (guildData.rolePrices && Object.keys(guildData.rolePrices).length > 0) {
-    for (const [roleId, priceValue] of Object.entries(guildData.rolePrices)) {
-      const price = Number(priceValue) || 0;
-      if (price <= 0) continue;
-
-      if (!guildData.roles[roleId]) {
-        guildData.roles[roleId] = {
-          roleId,
-          roleName: null,
-          price,
-          incomeBonusPercent: 0,
-          configuredAt: Date.now(),
-          updatedAt: Date.now(),
-          configuredBy: null,
-        };
-        changed = true;
-      }
-    }
-
-    delete guildData.rolePrices;
-    changed = true;
-  }
-
-  for (const [roleId, entry] of Object.entries(guildData.roles || {})) {
-    if (!entry || typeof entry !== 'object') {
-      delete guildData.roles[roleId];
-      changed = true;
-      continue;
-    }
-
-    const normalizedBonus = Number(entry.incomeBonusPercent);
-    if (!Number.isFinite(normalizedBonus) || normalizedBonus < 0) {
-      entry.incomeBonusPercent = 0;
-      changed = true;
-    }
-
-    if (typeof entry.incomeBonusPercent === 'number' && entry.incomeBonusPercent !== Math.floor(entry.incomeBonusPercent * 100) / 100) {
-      entry.incomeBonusPercent = Math.floor(entry.incomeBonusPercent * 100) / 100;
-      changed = true;
-    }
-
-    if (!entry.roleId) {
-      entry.roleId = roleId;
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    guildData.updatedAt = Date.now();
-  }
-
-  return guildData;
+async function getRolePrices(guildId) {
+  const [rows] = await query(
+    `SELECT role_id, role_name, price, income_bonus_percent, configured_at, updated_at, configured_by
+     FROM economy_shop_roles WHERE guild_id = ? AND price > 0 ORDER BY price ASC`,
+    [guildId]
+  );
+  return rows.map(row => ({
+    roleId: row.role_id,
+    roleName: row.role_name || null,
+    price: Number(row.price) || 0,
+    incomeBonusPercent: Math.max(0, Number(row.income_bonus_percent) || 0),
+    configuredAt: Number(row.configured_at) || 0,
+    updatedAt: Number(row.updated_at) || 0,
+    configuredBy: row.configured_by || null,
+  }));
 }
 
-function getAllShopData() {
-  const all = readJson(shopPath, {});
-  let changed = false;
-
-  for (const guildId of Object.keys(all)) {
-    const normalized = ensureGuildShopData(all[guildId]);
-    if (JSON.stringify(normalized) !== JSON.stringify(all[guildId])) {
-      all[guildId] = normalized;
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    writeJson(shopPath, all);
-  }
-
-  return all;
-}
-
-function getGuildShopData(guildId) {
-  const all = getAllShopData();
-  if (!all[guildId]) {
-    all[guildId] = { roles: {} };
-    writeJson(shopPath, all);
-  }
-  return all[guildId];
-}
-
-function getRolePrices(guildId) {
-  const guildData = getGuildShopData(guildId);
-  return Object.values(guildData.roles || {})
-    .map(entry => ({
-      roleId: entry.roleId,
-      roleName: entry.roleName || null,
-      price: Number(entry.price) || 0,
-      incomeBonusPercent: Math.max(0, Number(entry.incomeBonusPercent) || 0),
-      configuredAt: Number(entry.configuredAt) || 0,
-      updatedAt: Number(entry.updatedAt) || 0,
-      configuredBy: entry.configuredBy || null,
-    }))
-    .filter(item => item.price > 0)
-    .sort((a, b) => a.price - b.price);
-}
-
-function setRolePrice(guildId, roleOrId, price, configuredBy = null) {
-  const all = getAllShopData();
-  if (!all[guildId]) all[guildId] = { roles: {} };
-  if (!all[guildId].roles) all[guildId].roles = {};
-
+async function setRolePrice(guildId, roleOrId, price, configuredBy = null) {
   const roleId = typeof roleOrId === 'string' ? roleOrId : roleOrId?.id;
   const roleName = typeof roleOrId === 'string' ? null : roleOrId?.name || null;
   if (!roleId) return;
 
-  const existing = all[guildId].roles[roleId] || {};
-  all[guildId].roles[roleId] = {
-    roleId,
-    roleName,
-    price: Math.max(1, Math.floor(price)),
-    incomeBonusPercent: Math.max(0, Number(existing.incomeBonusPercent) || 0),
-    configuredAt: Number(existing.configuredAt) || Date.now(),
-    updatedAt: Date.now(),
-    configuredBy: configuredBy || existing.configuredBy || null,
-  };
+  const cleanPrice = Math.max(1, Math.floor(price));
+  const now = Date.now();
 
-  writeJson(shopPath, all);
+  await query(
+    `INSERT INTO economy_shop_roles (guild_id, role_id, role_name, price, income_bonus_percent, configured_at, updated_at, configured_by)
+     VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE role_name = VALUES(role_name), price = VALUES(price), updated_at = VALUES(updated_at), configured_by = COALESCE(VALUES(configured_by), configured_by)`,
+    [guildId, roleId, roleName, cleanPrice, now, now, configuredBy]
+  );
 }
 
-function replaceRoleShopEntry(guildId, oldRoleId, newRoleOrId, overridePrice = null, configuredBy = null) {
-  const all = getAllShopData();
-  if (!all[guildId]) all[guildId] = { roles: {} };
-  if (!all[guildId].roles) all[guildId].roles = {};
-
-  const oldEntry = all[guildId].roles[oldRoleId];
-  if (!oldEntry) return null;
+async function replaceRoleShopEntry(guildId, oldRoleId, newRoleOrId, overridePrice = null, configuredBy = null) {
+  const [rows] = await query(
+    'SELECT * FROM economy_shop_roles WHERE guild_id = ? AND role_id = ?',
+    [guildId, oldRoleId]
+  );
+  if (!rows.length) return null;
+  const oldEntry = rows[0];
 
   const newRoleId = typeof newRoleOrId === 'string' ? newRoleOrId : newRoleOrId?.id;
   const newRoleName = typeof newRoleOrId === 'string' ? null : newRoleOrId?.name || null;
@@ -446,87 +362,76 @@ function replaceRoleShopEntry(guildId, oldRoleId, newRoleOrId, overridePrice = n
     ? Math.floor(overridePrice)
     : Math.max(1, Math.floor(Number(oldEntry.price) || 1));
 
-  delete all[guildId].roles[oldRoleId];
-  all[guildId].roles[newRoleId] = {
+  const now = Date.now();
+  await query('DELETE FROM economy_shop_roles WHERE guild_id = ? AND role_id = ?', [guildId, oldRoleId]);
+  await query(
+    `INSERT INTO economy_shop_roles (guild_id, role_id, role_name, price, income_bonus_percent, configured_at, updated_at, configured_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE role_name = VALUES(role_name), price = VALUES(price), updated_at = VALUES(updated_at)`,
+    [guildId, newRoleId, newRoleName, nextPrice, Math.max(0, Number(oldEntry.income_bonus_percent) || 0), Number(oldEntry.configured_at) || now, now, configuredBy || oldEntry.configured_by || null]
+  );
+
+  return {
     roleId: newRoleId,
     roleName: newRoleName,
     price: nextPrice,
-    incomeBonusPercent: Math.max(0, Number(oldEntry.incomeBonusPercent) || 0),
-    configuredAt: Number(oldEntry.configuredAt) || Date.now(),
-    updatedAt: Date.now(),
-    configuredBy: configuredBy || oldEntry.configuredBy || null,
+    incomeBonusPercent: Math.max(0, Number(oldEntry.income_bonus_percent) || 0),
+    configuredAt: Number(oldEntry.configured_at) || now,
+    updatedAt: now,
+    configuredBy: configuredBy || oldEntry.configured_by || null,
   };
-
-  writeJson(shopPath, all);
-  return all[guildId].roles[newRoleId];
 }
 
-function removeRolePrice(guildId, roleId) {
-  const all = getAllShopData();
-  if (!all[guildId]?.roles?.[roleId]) return false;
-  delete all[guildId].roles[roleId];
-  writeJson(shopPath, all);
-  return true;
+async function removeRolePrice(guildId, roleId) {
+  const [result] = await query('DELETE FROM economy_shop_roles WHERE guild_id = ? AND role_id = ?', [guildId, roleId]);
+  return result.affectedRows > 0;
 }
 
-function getRolePrice(guildId, roleId) {
-  const guildData = getGuildShopData(guildId);
-  const price = Number(guildData.roles?.[roleId]?.price) || 0;
+async function getRolePrice(guildId, roleId) {
+  const [rows] = await query('SELECT price FROM economy_shop_roles WHERE guild_id = ? AND role_id = ?', [guildId, roleId]);
+  const price = rows.length ? Number(rows[0].price) || 0 : 0;
   return price > 0 ? price : null;
 }
 
-function getRoleShopEntry(guildId, roleId) {
-  const guildData = getGuildShopData(guildId);
-  const entry = guildData.roles?.[roleId];
-  if (!entry) return null;
+async function getRoleShopEntry(guildId, roleId) {
+  const [rows] = await query('SELECT * FROM economy_shop_roles WHERE guild_id = ? AND role_id = ?', [guildId, roleId]);
+  if (!rows.length) return null;
+  const entry = rows[0];
   return {
-    roleId: entry.roleId,
-    roleName: entry.roleName || null,
+    roleId: entry.role_id,
+    roleName: entry.role_name || null,
     price: Number(entry.price) || 0,
-    incomeBonusPercent: Math.max(0, Number(entry.incomeBonusPercent) || 0),
-    configuredAt: Number(entry.configuredAt) || 0,
-    updatedAt: Number(entry.updatedAt) || 0,
-    configuredBy: entry.configuredBy || null,
+    incomeBonusPercent: Math.max(0, Number(entry.income_bonus_percent) || 0),
+    configuredAt: Number(entry.configured_at) || 0,
+    updatedAt: Number(entry.updated_at) || 0,
+    configuredBy: entry.configured_by || null,
   };
 }
 
-function setRoleIncomeBonusPercent(guildId, roleOrId, incomeBonusPercent, configuredBy = null) {
-  const all = getAllShopData();
-  if (!all[guildId]) all[guildId] = { roles: {} };
-  if (!all[guildId].roles) all[guildId].roles = {};
-
+async function setRoleIncomeBonusPercent(guildId, roleOrId, incomeBonusPercent, configuredBy = null) {
   const roleId = typeof roleOrId === 'string' ? roleOrId : roleOrId?.id;
   if (!roleId) return null;
 
-  const existing = all[guildId].roles[roleId];
-  if (!existing || !(Number(existing.price) > 0)) return null;
+  const [rows] = await query('SELECT * FROM economy_shop_roles WHERE guild_id = ? AND role_id = ?', [guildId, roleId]);
+  if (!rows.length || !(Number(rows[0].price) > 0)) return null;
 
   const cleanBonus = Math.max(0, Math.floor((Number(incomeBonusPercent) || 0) * 100) / 100);
-  all[guildId].roles[roleId] = {
-    ...existing,
-    incomeBonusPercent: cleanBonus,
-    updatedAt: Date.now(),
-    configuredBy: configuredBy || existing.configuredBy || null,
-  };
+  const now = Date.now();
 
-  writeJson(shopPath, all);
-  return {
-    roleId: all[guildId].roles[roleId].roleId,
-    roleName: all[guildId].roles[roleId].roleName || null,
-    price: Number(all[guildId].roles[roleId].price) || 0,
-    incomeBonusPercent: Math.max(0, Number(all[guildId].roles[roleId].incomeBonusPercent) || 0),
-    configuredAt: Number(all[guildId].roles[roleId].configuredAt) || 0,
-    updatedAt: Number(all[guildId].roles[roleId].updatedAt) || 0,
-    configuredBy: all[guildId].roles[roleId].configuredBy || null,
-  };
+  await query(
+    'UPDATE economy_shop_roles SET income_bonus_percent = ?, updated_at = ?, configured_by = COALESCE(?, configured_by) WHERE guild_id = ? AND role_id = ?',
+    [cleanBonus, now, configuredBy, guildId, roleId]
+  );
+
+  return getRoleShopEntry(guildId, roleId);
 }
 
-function getIncomeBonusForMember(guildId, member) {
+async function getIncomeBonusForMember(guildId, member) {
   if (!member?.roles?.cache) {
     return { percent: 0, roles: [] };
   }
 
-  const configuredRoles = getRolePrices(guildId)
+  const configuredRoles = (await getRolePrices(guildId))
     .filter(item => item.price > 0 && item.incomeBonusPercent > 0);
 
   const matchedRoles = configuredRoles.filter(item => member.roles.cache.has(item.roleId));
@@ -538,10 +443,24 @@ function getIncomeBonusForMember(guildId, member) {
   };
 }
 
-function getLastRobbery(guildId, thiefId, victimId) {
-  const all = readJson(robberyPath, {});
+async function getRobberyGuildData(guildId) {
+  const [rows] = await query('SELECT data FROM economy_robbery WHERE guild_id = ?', [guildId]);
+  if (!rows.length || !rows[0].data) return {};
+  return typeof rows[0].data === 'string' ? JSON.parse(rows[0].data) : rows[0].data;
+}
+
+async function saveRobberyGuildData(guildId, data) {
+  await query(
+    `INSERT INTO economy_robbery (guild_id, data) VALUES (?, CAST(? AS JSON))
+     ON DUPLICATE KEY UPDATE data = VALUES(data)`,
+    [guildId, JSON.stringify(data)]
+  );
+}
+
+async function getLastRobbery(guildId, thiefId, victimId) {
+  const all = await getRobberyGuildData(guildId);
   const key = `${thiefId}:${victimId}`;
-  const record = all[guildId]?.[key] || null;
+  const record = all[key] || null;
   if (!record) return null;
 
   return {
@@ -550,9 +469,9 @@ function getLastRobbery(guildId, thiefId, victimId) {
   };
 }
 
-function getVictimRobberyRecord(guildId, victimId) {
-  const all = readJson(robberyPath, {});
-  const record = all[guildId]?.victims?.[victimId] || null;
+async function getVictimRobberyRecord(guildId, victimId) {
+  const all = await getRobberyGuildData(guildId);
+  const record = all.victims?.[victimId] || null;
   if (!record) return null;
 
   return {
@@ -565,8 +484,8 @@ function getVictimRobberyRecord(guildId, victimId) {
   };
 }
 
-function getVictimRobberyCooldown(guildId, victimId) {
-  const record = getVictimRobberyRecord(guildId, victimId);
+async function getVictimRobberyCooldown(guildId, victimId) {
+  const record = await getVictimRobberyRecord(guildId, victimId);
   if (!record) {
     return { remaining: 0, record: null };
   }
@@ -575,19 +494,18 @@ function getVictimRobberyCooldown(guildId, victimId) {
   return { remaining, record };
 }
 
-function recordRobbery(guildId, thiefId, victimId, amount, options = {}) {
-  const all = readJson(robberyPath, {});
-  if (!all[guildId]) all[guildId] = {};
+async function recordRobbery(guildId, thiefId, victimId, amount, options = {}) {
+  const all = await getRobberyGuildData(guildId);
   const key = `${thiefId}:${victimId}`;
   const now = Date.now();
   const victimCooldownMs = Math.max(1, Math.floor(Number(options.victimCooldownMs) || DEFAULT_ROBBERY_VICTIM_COOLDOWN_MS));
-  all[guildId][key] = {
+  all[key] = {
     amount: Math.max(0, Math.floor(amount || 0)),
     at: now,
   };
 
-  if (!all[guildId].victims) all[guildId].victims = {};
-  all[guildId].victims[victimId] = {
+  if (!all.victims) all.victims = {};
+  all.victims[victimId] = {
     thiefId,
     amountWallet: Math.max(0, Math.floor(Number(options.amountWallet) || 0)),
     amountBank: Math.max(0, Math.floor(Number(options.amountBank) || 0)),
@@ -595,33 +513,41 @@ function recordRobbery(guildId, thiefId, victimId, amount, options = {}) {
     at: now,
     cooldownMs: victimCooldownMs,
   };
-  writeJson(robberyPath, all);
+  await saveRobberyGuildData(guildId, all);
 
-  const robberyLogs = readJson(robberyLogsPath, []);
-  robberyLogs.push({
-    type: 'robbery',
-    command: options.command || 'rob',
-    guildId,
-    thiefId,
-    victimId,
-    amount: Math.max(0, Math.floor(amount || 0)),
-    amountWallet: Math.max(0, Math.floor(Number(options.amountWallet) || 0)),
-    amountBank: Math.max(0, Math.floor(Number(options.amountBank) || 0)),
-    at: now,
-    createdAt: new Date(now).toISOString(),
-  });
+  await query(
+    `INSERT INTO economy_robbery_logs (guild_id, data, created_at) VALUES (?, CAST(? AS JSON), ?)`,
+    [
+      guildId,
+      JSON.stringify({
+        type: 'robbery',
+        command: options.command || 'rob',
+        guildId,
+        thiefId,
+        victimId,
+        amount: Math.max(0, Math.floor(amount || 0)),
+        amountWallet: Math.max(0, Math.floor(Number(options.amountWallet) || 0)),
+        amountBank: Math.max(0, Math.floor(Number(options.amountBank) || 0)),
+        at: now,
+        createdAt: new Date(now).toISOString(),
+      }),
+      now,
+    ]
+  );
 
+  const [[{ cnt }]] = await query('SELECT COUNT(*) AS cnt FROM economy_robbery_logs WHERE guild_id = ?', [guildId]);
   const maxEntries = 5000;
-  if (robberyLogs.length > maxEntries) {
-    robberyLogs.splice(0, robberyLogs.length - maxEntries);
+  if (cnt > maxEntries) {
+    await query(
+      `DELETE FROM economy_robbery_logs WHERE guild_id = ? ORDER BY id ASC LIMIT ?`,
+      [guildId, cnt - maxEntries]
+    );
   }
-
-  writeJson(robberyLogsPath, robberyLogs);
 }
 
-function getRevengeBonusPercent(guildId, currentThiefId, currentVictimId) {
-  const all = readJson(robberyPath, {});
-  const entries = Object.entries(all[guildId] || {})
+async function getRevengeBonusPercent(guildId, currentThiefId, currentVictimId) {
+  const all = await getRobberyGuildData(guildId);
+  const entries = Object.entries(all)
     .filter(([key]) => key !== 'victims')
     .map(([key, record]) => {
       const [thiefId, victimId] = key.split(':');

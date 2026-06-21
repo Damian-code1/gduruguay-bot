@@ -56,9 +56,9 @@ module.exports = {
   async execute(message) {
     const guildId = message.guild.id;
     const userId = message.author.id;
-    const config = getGuildConfig(guildId);
+    const config = await getGuildConfig(guildId);
 
-    const remaining = getRemainingCooldown(guildId, userId, 'work', config.workCooldownMs);
+    const remaining = await getRemainingCooldown(guildId, userId, 'work', config.workCooldownMs);
     if (remaining > 0) {
       const embed = new EmbedBuilder()
         .setTitle('🛠️ Work en cooldown')
@@ -69,16 +69,16 @@ module.exports = {
       return message.reply({ embeds: [embed] });
     }
 
-    const currentBalance = getUserBalance(guildId, userId);
+    const currentBalance = await getUserBalance(guildId, userId);
     const rawBaseAmount = randomInt(config.workRewardMin, config.workRewardMax);
     const baseAmount = scaleRewardForEconomy(rawBaseAmount, currentBalance.total);
-    const incomeBonus = getIncomeBonusForMember(guildId, message.member);
+    const incomeBonus = await getIncomeBonusForMember(guildId, message.member);
     const bonusAmount = incomeBonus.percent > 0 ? Math.floor(baseAmount * (incomeBonus.percent / 100)) : 0;
     const amount = baseAmount + bonusAmount;
     const job = buildRandomRunEvent();
 
-    addToWallet(guildId, userId, amount);
-    setCooldown(guildId, userId, 'work', Date.now());
+    await addToWallet(guildId, userId, amount);
+    await setCooldown(guildId, userId, 'work', Date.now());
 
     const embed = new EmbedBuilder()
       .setTitle('🛠️ Trabajo completado')

@@ -461,7 +461,7 @@ module.exports = {
   },
   async execute(message, args = []) {
     const privileged = isPrivilegedMember(message.member, message.guild.id);
-    const hideEconomy = isEconomySeasonLocked(message.guild.id);
+    const hideEconomy = await isEconomySeasonLocked(message.guild.id);
     const catalog = buildCatalog(message.client, hideEconomy);
     const visibleCatalog = getVisibleCatalog(catalog, message.member, privileged);
     const categories = getCategoriesForMember(catalog, message.member, privileged);

@@ -235,8 +235,8 @@ module.exports = {
       });
     }
 
-    const config = getGuildConfig(guildId);
-    const challengerBalance = getUserBalance(guildId, challengerId);
+    const config = await getGuildConfig(guildId);
+    const challengerBalance = await getUserBalance(guildId, challengerId);
     const amount = parseAmountInput(args.slice(1).join(' '), challengerBalance.wallet);
 
     if (!amount || amount <= 0) {
@@ -251,7 +251,7 @@ module.exports = {
       });
     }
 
-    const opponentBalance = getUserBalance(guildId, opponent.id);
+    const opponentBalance = await getUserBalance(guildId, opponent.id);
     if (opponentBalance.wallet < amount) {
       return message.reply({
         embeds: [new EmbedBuilder().setTitle('❌ Rival sin fondos').setColor(0xED4245).setDescription('El rival no tiene suficiente saldo en mano para igualar la apuesta.')],
@@ -269,16 +269,16 @@ module.exports = {
       });
     }
 
-    const challengerNow = getUserBalance(guildId, challengerId);
-    const opponentNow = getUserBalance(guildId, opponent.id);
+    const challengerNow = await getUserBalance(guildId, challengerId);
+    const opponentNow = await getUserBalance(guildId, opponent.id);
     if (challengerNow.wallet < amount || opponentNow.wallet < amount) {
       return message.reply({
         embeds: [new EmbedBuilder().setTitle('⚠️ Duelo abortado').setColor(0xE67E22).setDescription('Uno de los dos ya no tiene fondos para iniciar el duelo.')],
       });
     }
 
-    removeFromWallet(guildId, challengerId, amount);
-    removeFromWallet(guildId, opponent.id, amount);
+    await removeFromWallet(guildId, challengerId, amount);
+    await removeFromWallet(guildId, opponent.id, amount);
 
     setBusyPair(guildId, challengerId, opponent.id, activeDuels, true);
 
@@ -361,8 +361,8 @@ module.exports = {
       const pot = amount * 2;
 
       if (!winnerId) {
-        addToWallet(guildId, challengerId, amount);
-        addToWallet(guildId, opponent.id, amount);
+        await addToWallet(guildId, challengerId, amount);
+        await addToWallet(guildId, opponent.id, amount);
 
         return message.channel.send({
           embeds: [
@@ -378,7 +378,7 @@ module.exports = {
         });
       }
 
-      addToWallet(guildId, winnerId, pot);
+      await addToWallet(guildId, winnerId, pot);
 
       return message.channel.send({
         embeds: [

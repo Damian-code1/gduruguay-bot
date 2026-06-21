@@ -42,11 +42,11 @@ module.exports = {
       });
     }
 
-    const config = getGuildConfig(guildId);
+    const config = await getGuildConfig(guildId);
     const sub = (args[0] || 'list').toLowerCase();
 
     if (sub === 'list') {
-      const prices = getRolePrices(guildId);
+      const prices = await getRolePrices(guildId);
       if (!prices.length) {
         return message.reply({
           embeds: [new EmbedBuilder().setTitle('🛍️ Tienda de roles').setColor(0x5865F2).setDescription('No hay roles configurados aún.')],
@@ -69,7 +69,7 @@ module.exports = {
       const action = String(args[1] || 'list').toLowerCase();
 
       if (action === 'list') {
-        const prices = getRolePrices(guildId);
+        const prices = await getRolePrices(guildId);
         if (!prices.length) {
           return message.reply({
             embeds: [new EmbedBuilder().setTitle('🛍️ Bonus income por rol').setColor(0x5865F2).setDescription('No hay roles configurados en la shop.')],
@@ -98,14 +98,14 @@ module.exports = {
           });
         }
 
-        const entry = getRoleShopEntry(guildId, role.id);
+        const entry = await getRoleShopEntry(guildId, role.id);
         if (!entry || !(Number(entry.price) > 0)) {
           return message.reply({
             embeds: [new EmbedBuilder().setTitle('❌ Rol fuera de la shop').setColor(0xED4245).setDescription('Ese rol no está en la shop. Primero configuralo con `-roleprice set <@rol|rolId|nombre> <precio>`.')],
           });
         }
 
-        const saved = setRoleIncomeBonusPercent(guildId, role, percent, message.author.id);
+        const saved = await setRoleIncomeBonusPercent(guildId, role, percent, message.author.id);
         if (!saved) {
           return message.reply({
             embeds: [new EmbedBuilder().setTitle('❌ No se pudo guardar').setColor(0xED4245).setDescription('No pude guardar el bonus de income para ese rol.')],
@@ -130,14 +130,14 @@ module.exports = {
           });
         }
 
-        const entry = getRoleShopEntry(guildId, role.id);
+        const entry = await getRoleShopEntry(guildId, role.id);
         if (!entry || !(Number(entry.price) > 0)) {
           return message.reply({
             embeds: [new EmbedBuilder().setTitle('❌ Rol fuera de la shop').setColor(0xED4245).setDescription('Ese rol no está en la shop.')],
           });
         }
 
-        const saved = setRoleIncomeBonusPercent(guildId, role, 0, message.author.id);
+        const saved = await setRoleIncomeBonusPercent(guildId, role, 0, message.author.id);
         return message.reply({
           embeds: [
             new EmbedBuilder()
@@ -173,7 +173,7 @@ module.exports = {
         });
       }
 
-      setRolePrice(guildId, role, Math.floor(price), message.author.id);
+      await setRolePrice(guildId, role, Math.floor(price), message.author.id);
       return message.reply({
         embeds: [new EmbedBuilder().setTitle('✅ Precio configurado').setColor(0x2ECC71).setDescription(`${role} ahora cuesta ${formatCurrency(price, config)}.`)],
       });
@@ -190,7 +190,7 @@ module.exports = {
         });
       }
 
-      const replaced = replaceRoleShopEntry(
+      const replaced = await replaceRoleShopEntry(
         guildId,
         oldRole.id,
         newRole,
@@ -222,7 +222,7 @@ module.exports = {
         });
       }
 
-      const removed = removeRolePrice(guildId, role.id);
+      const removed = await removeRolePrice(guildId, role.id);
       return message.reply({
         embeds: [
           new EmbedBuilder()

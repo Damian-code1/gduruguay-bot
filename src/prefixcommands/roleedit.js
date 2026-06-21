@@ -181,13 +181,13 @@ module.exports = {
       }
 
       if (parsed.shopPrice !== null) {
-        setRolePrice(guildId, role, parsed.shopPrice, message.author.id);
-        const config = getGuildConfig(guildId);
+        await setRolePrice(guildId, role, parsed.shopPrice, message.author.id);
+        const config = await getGuildConfig(guildId);
         summary.push(`Shop: **${formatCurrency(parsed.shopPrice, config)}**`);
       }
 
       if (parsed.shopRemove) {
-        const removed = removeRolePrice(guildId, role.id);
+        const removed = await removeRolePrice(guildId, role.id);
         summary.push(removed ? 'Shop: **removido**' : 'Shop: **sin cambios**');
       }
 

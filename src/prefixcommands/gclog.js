@@ -44,7 +44,7 @@ module.exports = {
       return message.reply('📭 No hay registros de `-grantcoins` en este servidor.');
     }
 
-    const config = getGuildConfig(guildId);
+    const config = await getGuildConfig(guildId);
     const totalPages = Math.max(1, Math.ceil(logs.length / PAGE_SIZE));
     const pageInput = Number(args[0]);
     const page = Number.isFinite(pageInput) ? Math.min(totalPages, Math.max(1, Math.floor(pageInput))) : 1;

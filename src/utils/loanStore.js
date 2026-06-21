@@ -1,8 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const { query } = require('./db');
 const { getUserBalance, withdrawFromBank, removeFromWallet } = require('./economyStore');
-
-const loansPath = path.join(__dirname, '../economy-loans.json');
 
 const LOAN_RULES = Object.freeze({
   DEFAULT_PRINCIPAL: 500_000,
@@ -15,25 +12,22 @@ const LOAN_RULES = Object.freeze({
   MINIMUM_PENALTY: 25_000,
 });
 
-function ensureFile(filePath, fallback) {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(fallback, null, 2));
-  }
-}
-
-function readJson(filePath, fallback = {}) {
-  ensureFile(filePath, fallback);
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
-function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-}
-
 function toSafeInt(value, fallback = 0) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return Math.floor(fallback);
   return Math.floor(parsed);
+}
+
+function defaultUserData() {
+  return {
+    activeLoan: null,
+    stats: {
+      takenCount: 0,
+      totalBorrowed: 0,
+      totalRepaid: 0,
+      totalDefaults: 0,
+    },
+  };
 }
 
 function normalizeLoan(rawLoan) {
@@ -60,66 +54,32 @@ function normalizeLoan(rawLoan) {
   };
 }
 
-function ensureGuildData(guildId) {
-  const all = readJson(loansPath, {});
-  if (!all[guildId]) {
-    all[guildId] = { users: {} };
-    writeJson(loansPath, all);
-  }
-
-  const guildData = all[guildId] || {};
-  if (!guildData.users || typeof guildData.users !== 'object') guildData.users = {};
-
-  for (const [userId, userData] of Object.entries(guildData.users)) {
-    if (!userData || typeof userData !== 'object') {
-      guildData.users[userId] = {
-        activeLoan: null,
-        stats: {
-          takenCount: 0,
-          totalBorrowed: 0,
-          totalRepaid: 0,
-          totalDefaults: 0,
-        },
-      };
-      continue;
-    }
-
-    userData.activeLoan = normalizeLoan(userData.activeLoan);
-    if (!userData.stats || typeof userData.stats !== 'object') {
-      userData.stats = {};
-    }
-
-    userData.stats.takenCount = Math.max(0, Math.floor(Number(userData.stats.takenCount) || 0));
-    userData.stats.totalBorrowed = Math.max(0, Math.floor(Number(userData.stats.totalBorrowed) || 0));
-    userData.stats.totalRepaid = Math.max(0, Math.floor(Number(userData.stats.totalRepaid) || 0));
-    userData.stats.totalDefaults = Math.max(0, Math.floor(Number(userData.stats.totalDefaults) || 0));
-  }
-
-  all[guildId] = guildData;
-  writeJson(loansPath, all);
-  return guildData;
+async function getRawUserData(guildId, userId) {
+  const [rows] = await query('SELECT data FROM economy_loans WHERE guild_id = ? AND user_id = ?', [guildId, userId]);
+  if (!rows.length || !rows[0].data) return defaultUserData();
+  const parsed = typeof rows[0].data === 'string' ? JSON.parse(rows[0].data) : rows[0].data;
+  return {
+    activeLoan: normalizeLoan(parsed.activeLoan),
+    stats: {
+      takenCount: Math.max(0, Math.floor(Number(parsed.stats?.takenCount) || 0)),
+      totalBorrowed: Math.max(0, Math.floor(Number(parsed.stats?.totalBorrowed) || 0)),
+      totalRepaid: Math.max(0, Math.floor(Number(parsed.stats?.totalRepaid) || 0)),
+      totalDefaults: Math.max(0, Math.floor(Number(parsed.stats?.totalDefaults) || 0)),
+    },
+  };
 }
 
-function getOrCreateUserData(guildData, userId) {
-  if (!guildData.users[userId]) {
-    guildData.users[userId] = {
-      activeLoan: null,
-      stats: {
-        takenCount: 0,
-        totalBorrowed: 0,
-        totalRepaid: 0,
-        totalDefaults: 0,
-      },
-    };
-  }
-
-  return guildData.users[userId];
+async function saveUserData(guildId, userId, userData) {
+  await query(
+    `INSERT INTO economy_loans (guild_id, user_id, data) VALUES (?, ?, CAST(? AS JSON))
+     ON DUPLICATE KEY UPDATE data = VALUES(data)`,
+    [guildId, userId, JSON.stringify(userData)]
+  );
 }
 
-function getLoanProfile(guildId, userId, now = Date.now()) {
-  const guildData = ensureGuildData(guildId);
-  const userData = getOrCreateUserData(guildData, userId);
-  const activeLoan = normalizeLoan(userData.activeLoan);
+async function getLoanProfile(guildId, userId, now = Date.now()) {
+  const userData = await getRawUserData(guildId, userId);
+  const activeLoan = userData.activeLoan;
 
   if (!activeLoan) {
     return {
@@ -140,16 +100,17 @@ function getLoanProfile(guildId, userId, now = Date.now()) {
   };
 }
 
-function getGuildActiveLoans(guildId, now = Date.now()) {
-  const guildData = ensureGuildData(guildId);
+async function getGuildActiveLoans(guildId, now = Date.now()) {
+  const [rows] = await query('SELECT user_id, data FROM economy_loans WHERE guild_id = ?', [guildId]);
 
-  return Object.entries(guildData.users || {})
-    .map(([userId, userData]) => {
-      const activeLoan = normalizeLoan(userData?.activeLoan);
+  return rows
+    .map(row => {
+      const parsed = typeof row.data === 'string' ? JSON.parse(row.data) : (row.data || {});
+      const activeLoan = normalizeLoan(parsed.activeLoan);
       if (!activeLoan || activeLoan.remaining <= 0) return null;
 
       return {
-        userId,
+        userId: row.user_id,
         ...activeLoan,
         overdue: now > activeLoan.dueAt,
         remainingMs: Math.max(0, activeLoan.dueAt - now),
@@ -159,12 +120,10 @@ function getGuildActiveLoans(guildId, now = Date.now()) {
     .sort((a, b) => (a.dueAt - b.dueAt) || (b.remaining - a.remaining));
 }
 
-function requestLargeLoan(guildId, userId, options = {}) {
-  const all = readJson(loansPath, {});
-  const guildData = ensureGuildData(guildId);
-  const userData = getOrCreateUserData(guildData, userId);
+async function requestLargeLoan(guildId, userId, options = {}) {
+  const userData = await getRawUserData(guildId, userId);
 
-  const currentLoan = normalizeLoan(userData.activeLoan);
+  const currentLoan = userData.activeLoan;
   if (currentLoan && currentLoan.remaining > 0) {
     return { ok: false, reason: 'active_loan', loan: currentLoan };
   }
@@ -200,17 +159,14 @@ function requestLargeLoan(guildId, userId, options = {}) {
   userData.stats.takenCount += 1;
   userData.stats.totalBorrowed += principal;
 
-  all[guildId] = guildData;
-  writeJson(loansPath, all);
+  await saveUserData(guildId, userId, userData);
   return { ok: true, loan };
 }
 
-function applyLoanRepayment(guildId, userId, amount) {
-  const all = readJson(loansPath, {});
-  const guildData = ensureGuildData(guildId);
-  const userData = getOrCreateUserData(guildData, userId);
+async function applyLoanRepayment(guildId, userId, amount) {
+  const userData = await getRawUserData(guildId, userId);
 
-  const currentLoan = normalizeLoan(userData.activeLoan);
+  const currentLoan = userData.activeLoan;
   if (!currentLoan || currentLoan.remaining <= 0) {
     return { ok: false, reason: 'no_active_loan' };
   }
@@ -232,8 +188,7 @@ function applyLoanRepayment(guildId, userId, amount) {
     userData.activeLoan = currentLoan;
   }
 
-  all[guildId] = guildData;
-  writeJson(loansPath, all);
+  await saveUserData(guildId, userId, userData);
 
   return {
     ok: true,
@@ -244,19 +199,16 @@ function applyLoanRepayment(guildId, userId, amount) {
   };
 }
 
-function clearUserLoan(guildId, userId) {
-  const all = readJson(loansPath, {});
-  const guildData = ensureGuildData(guildId);
-  const userData = getOrCreateUserData(guildData, userId);
+async function clearUserLoan(guildId, userId) {
+  const userData = await getRawUserData(guildId, userId);
 
-  const currentLoan = normalizeLoan(userData.activeLoan);
+  const currentLoan = userData.activeLoan;
   if (!currentLoan) {
     return { ok: false, reason: 'no_active_loan' };
   }
 
   userData.activeLoan = null;
-  all[guildId] = guildData;
-  writeJson(loansPath, all);
+  await saveUserData(guildId, userId, userData);
 
   return {
     ok: true,
@@ -264,16 +216,14 @@ function clearUserLoan(guildId, userId) {
   };
 }
 
-function processOverdueLoan(guildId, userId, options = {}) {
+async function processOverdueLoan(guildId, userId, options = {}) {
   const now = Math.max(0, Math.floor(Number(options.now) || Date.now()));
   const penaltyPercent = Math.max(0, Math.min(100, toSafeInt(options.penaltyPercent, LOAN_RULES.PENALTY_PERCENT)));
   const minimumPenalty = Math.max(0, toSafeInt(options.minimumPenalty, LOAN_RULES.MINIMUM_PENALTY));
 
-  const all = readJson(loansPath, {});
-  const guildData = ensureGuildData(guildId);
-  const userData = getOrCreateUserData(guildData, userId);
+  const userData = await getRawUserData(guildId, userId);
 
-  const currentLoan = normalizeLoan(userData.activeLoan);
+  const currentLoan = userData.activeLoan;
   if (!currentLoan || currentLoan.remaining <= 0) {
     return { applied: false, reason: 'no_active_loan' };
   }
@@ -293,24 +243,23 @@ function processOverdueLoan(guildId, userId, options = {}) {
   currentLoan.remaining += surcharge;
   currentLoan.dueAmount += surcharge;
 
-  const balanceBefore = getUserBalance(guildId, userId);
+  const balanceBefore = await getUserBalance(guildId, userId);
   const seizedAmount = Math.max(0, (Number(balanceBefore.wallet) || 0) + (Number(balanceBefore.bank) || 0));
   if (balanceBefore.bank > 0) {
-    const moved = withdrawFromBank(guildId, userId, balanceBefore.bank);
+    const moved = await withdrawFromBank(guildId, userId, balanceBefore.bank);
     if (moved > 0) {
-      removeFromWallet(guildId, userId, moved);
+      await removeFromWallet(guildId, userId, moved);
     }
   }
   if (balanceBefore.wallet > 0) {
-    removeFromWallet(guildId, userId, balanceBefore.wallet);
+    await removeFromWallet(guildId, userId, balanceBefore.wallet);
   }
 
   currentLoan.seizedAmount = seizedAmount;
   userData.stats.totalDefaults += 1;
 
   userData.activeLoan = currentLoan;
-  all[guildId] = guildData;
-  writeJson(loansPath, all);
+  await saveUserData(guildId, userId, userData);
 
   return {
     applied: true,

@@ -15,12 +15,12 @@ const { getWealthMultiplier, scaleRewardForEconomy, BASE_REWARD_BUFF } = require
 
 const incomeResetTimers = new Map();
 
-function scheduleIncomeResetPing(message, guildId, userId) {
+async function scheduleIncomeResetPing(message, guildId, userId) {
   const methods = listIncomeActions();
   let maxRemaining = 0;
 
   for (const item of methods) {
-    const remaining = getRemainingCooldown(guildId, userId, `income_${item.key}`, item.cooldownMs);
+    const remaining = await getRemainingCooldown(guildId, userId, `income_${item.key}`, item.cooldownMs);
     if (remaining > maxRemaining) {
       maxRemaining = remaining;
     }
@@ -41,9 +41,11 @@ function scheduleIncomeResetPing(message, guildId, userId) {
   const timer = setTimeout(async () => {
     incomeResetTimers.delete(timerKey);
 
-    const latestRemaining = methods
-      .map(item => getRemainingCooldown(guildId, userId, `income_${item.key}`, item.cooldownMs))
-      .reduce((acc, value) => Math.max(acc, value), 0);
+    let latestRemaining = 0;
+    for (const item of methods) {
+      const r = await getRemainingCooldown(guildId, userId, `income_${item.key}`, item.cooldownMs);
+      latestRemaining = Math.max(latestRemaining, r);
+    }
 
     if (latestRemaining > 0) {
       return;
@@ -73,7 +75,7 @@ module.exports = {
   async execute(message, args) {
     const guildId = message.guild.id;
     const userId = message.author.id;
-    const config = getGuildConfig(guildId);
+    const config = await getGuildConfig(guildId);
 
     const method = String(args[0] || 'list').toLowerCase();
 
@@ -101,11 +103,11 @@ module.exports = {
       let totalEconomyBuff = 0;
       let played = 0;
       let inCooldown = 0;
-      const incomeBonus = getIncomeBonusForMember(guildId, message.member);
+      const incomeBonus = await getIncomeBonusForMember(guildId, message.member);
 
       for (const item of methods) {
         const cooldownKey = `income_${item.key}`;
-        const remaining = getRemainingCooldown(guildId, userId, cooldownKey, item.cooldownMs);
+        const remaining = await getRemainingCooldown(guildId, userId, cooldownKey, item.cooldownMs);
 
         if (remaining > 0) {
           inCooldown += 1;
@@ -113,18 +115,18 @@ module.exports = {
           continue;
         }
 
-        setCooldown(guildId, userId, cooldownKey, Date.now());
+        await setCooldown(guildId, userId, cooldownKey, Date.now());
 
         const success = Math.random() < item.successChance;
         let amount = 0;
 
         if (success) {
-          const current = getUserBalance(guildId, userId);
+          const current = await getUserBalance(guildId, userId);
           const rawBaseAmount = randomInt(item.rewardMin, item.rewardMax);
           const baseAmount = scaleRewardForEconomy(rawBaseAmount, current.total);
           const bonusAmount = incomeBonus.percent > 0 ? Math.floor(baseAmount * (incomeBonus.percent / 100)) : 0;
           amount = baseAmount + bonusAmount;
-          addToWallet(guildId, userId, amount);
+          await addToWallet(guildId, userId, amount);
           totalWon += amount;
           totalBonusApplied += bonusAmount;
           totalEconomyBuff += Math.max(0, baseAmount - rawBaseAmount);
@@ -135,11 +137,11 @@ module.exports = {
           );
         } else {
           const candidate = randomInt(item.lossMin, item.lossMax);
-          const current = getUserBalance(guildId, userId);
+          const current = await getUserBalance(guildId, userId);
           amount = Math.min(candidate, current.wallet);
 
           if (amount > 0) {
-            removeFromWallet(guildId, userId, amount);
+            await removeFromWallet(guildId, userId, amount);
             totalLost += amount;
             lines.push(`❌ **${item.label}** — -${formatCurrency(amount, config)}`);
           } else {
@@ -151,12 +153,13 @@ module.exports = {
       }
 
       const net = totalWon - totalLost;
+      const wealthNow = (await getUserBalance(guildId, userId)).total;
       const summaryLines = [
         `Métodos jugados: **${played}/${methods.length}**`,
         incomeBonus.percent > 0
           ? `Bonus por roles shop: **+${incomeBonus.percent}%** (${incomeBonus.roles.length} rol(es))`
           : 'Bonus por roles shop: **+0%**',
-        `Escalado por economía: **x${BASE_REWARD_BUFF} base** + multiplicador por patrimonio (actual: **x${getWealthMultiplier(getUserBalance(guildId, userId).total)}**)`,
+        `Escalado por economía: **x${BASE_REWARD_BUFF} base** + multiplicador por patrimonio (actual: **x${getWealthMultiplier(wealthNow)}**)`,
         inCooldown > 0 ? `En cooldown: **${inCooldown}**` : null,
         totalWon > 0 ? `Ganado total: ${formatCurrency(totalWon, config)}` : `Ganado total: ${formatCurrency(0, config)}`,
         totalEconomyBuff > 0 ? `Buff economía aplicado: ${formatCurrency(totalEconomyBuff, config)}` : null,
@@ -174,7 +177,7 @@ module.exports = {
         .setFooter({ text: 'Comando masivo: -income all / -workall / -all' })
         .setTimestamp();
 
-      scheduleIncomeResetPing(message, guildId, userId);
+      await scheduleIncomeResetPing(message, guildId, userId);
       return message.reply({ embeds: [embed] });
     }
 
@@ -186,7 +189,7 @@ module.exports = {
     }
 
     const cooldownKey = `income_${method}`;
-    const remaining = getRemainingCooldown(guildId, userId, cooldownKey, action.cooldownMs);
+    const remaining = await getRemainingCooldown(guildId, userId, cooldownKey, action.cooldownMs);
     if (remaining > 0) {
       return message.reply({
         embeds: [
@@ -198,28 +201,28 @@ module.exports = {
       });
     }
 
-    setCooldown(guildId, userId, cooldownKey, Date.now());
+    await setCooldown(guildId, userId, cooldownKey, Date.now());
 
     const success = Math.random() < action.successChance;
     let amount = 0;
     let baseReward = 0;
     let rawBaseReward = 0;
     let bonusReward = 0;
-    const incomeBonus = getIncomeBonusForMember(guildId, message.member);
+    const incomeBonus = await getIncomeBonusForMember(guildId, message.member);
 
     if (success) {
-      const current = getUserBalance(guildId, userId);
+      const current = await getUserBalance(guildId, userId);
       rawBaseReward = randomInt(action.rewardMin, action.rewardMax);
       baseReward = scaleRewardForEconomy(rawBaseReward, current.total);
       bonusReward = incomeBonus.percent > 0 ? Math.floor(baseReward * (incomeBonus.percent / 100)) : 0;
       amount = baseReward + bonusReward;
-      addToWallet(guildId, userId, amount);
+      await addToWallet(guildId, userId, amount);
     } else {
       const candidate = randomInt(action.lossMin, action.lossMax);
-      const current = getUserBalance(guildId, userId);
+      const current = await getUserBalance(guildId, userId);
       amount = Math.min(candidate, current.wallet);
       if (amount > 0) {
-        removeFromWallet(guildId, userId, amount);
+        await removeFromWallet(guildId, userId, amount);
       }
     }
 
@@ -234,7 +237,7 @@ module.exports = {
           : amount > 0
             ? `Perdiste ${formatCurrency(amount, config)}.`
             : 'No perdiste nada porque no tenías saldo en mano.',
-        success ? `Escalado economía: x${BASE_REWARD_BUFF} base, patrimonio actual x${getWealthMultiplier(getUserBalance(guildId, userId).total)}.` : null,
+        success ? `Escalado economía: x${BASE_REWARD_BUFF} base, patrimonio actual x${getWealthMultiplier((await getUserBalance(guildId, userId)).total)}.` : null,
         success ? `Buff economía aplicado: ${formatCurrency(Math.max(0, baseReward - rawBaseReward), config)}.` : null,
         success && bonusReward > 0
           ? `Bonus rol shop: +${incomeBonus.percent}% (${formatCurrency(bonusReward, config)} extra)`
@@ -243,7 +246,7 @@ module.exports = {
       .setFooter({ text: `Método: ${method}` })
       .setTimestamp();
 
-    scheduleIncomeResetPing(message, guildId, userId);
+    await scheduleIncomeResetPing(message, guildId, userId);
 
     return message.reply({ embeds: [embed] });
   },

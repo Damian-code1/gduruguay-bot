@@ -8,7 +8,7 @@ module.exports = {
     category: '📊 Información',
   },
   async execute(message) {
-    const record = getLastAfkMentions(message.guild.id, message.author.id);
+    const record = await getLastAfkMentions(message.guild.id, message.author.id);
 
     if (!record) {
       return message.reply('❌ No tenés menciones guardadas de tu último AFK.');

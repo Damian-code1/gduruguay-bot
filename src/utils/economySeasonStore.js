@@ -1,7 +1,4 @@
-const fs = require('fs');
-const path = require('path');
-
-const seasonPath = path.join(__dirname, '../economy-season.json');
+const { query } = require('./db');
 
 const DEFAULT_STATE = {
   locked: false,
@@ -13,80 +10,60 @@ const DEFAULT_STATE = {
   lockedReason: null,
 };
 
-function ensureFile(filePath, fallback) {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(fallback, null, 2));
-  }
-}
-
-function readJson(filePath, fallback = {}) {
-  ensureFile(filePath, fallback);
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
-function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-}
-
-function normalizeState(rawState = {}) {
+function rowToState(row) {
+  if (!row) return { ...DEFAULT_STATE };
   return {
-    locked: Boolean(rawState.locked),
-    seasonNumber: Math.max(1, Math.floor(Number(rawState.seasonNumber) || 1)),
-    lastResetAt: Math.max(0, Math.floor(Number(rawState.lastResetAt) || 0)),
-    lastOpenedAt: Math.max(0, Math.floor(Number(rawState.lastOpenedAt) || 0)),
-    lockedBy: rawState.lockedBy || null,
-    openedBy: rawState.openedBy || null,
-    lockedReason: rawState.lockedReason || null,
+    locked: Boolean(row.locked),
+    seasonNumber: Math.max(1, Number(row.season_number) || 1),
+    lastResetAt: Number(row.last_reset_at) || 0,
+    lastOpenedAt: Number(row.last_opened_at) || 0,
+    lockedBy: row.locked_by || null,
+    openedBy: row.opened_by || null,
+    lockedReason: row.locked_reason || null,
   };
 }
 
-function getSeasonState(guildId) {
-  const all = readJson(seasonPath, {});
-  if (!all[guildId]) {
-    all[guildId] = { ...DEFAULT_STATE };
-    writeJson(seasonPath, all);
-  }
+async function getSeasonState(guildId) {
+  const [rows] = await query('SELECT * FROM economy_season WHERE guild_id = ?', [guildId]);
+  if (rows.length) return rowToState(rows[0]);
 
-  const normalized = normalizeState(all[guildId]);
-  if (JSON.stringify(normalized) !== JSON.stringify(all[guildId])) {
-    all[guildId] = normalized;
-    writeJson(seasonPath, all);
-  }
-
-  return normalized;
+  await query(
+    `INSERT INTO economy_season (guild_id, locked, season_number, last_reset_at, last_opened_at, locked_by, opened_by, locked_reason)
+     VALUES (?, 0, 1, 0, 0, NULL, NULL, NULL)
+     ON DUPLICATE KEY UPDATE guild_id = guild_id`,
+    [guildId]
+  );
+  return { ...DEFAULT_STATE };
 }
 
-function isEconomySeasonLocked(guildId) {
-  return Boolean(getSeasonState(guildId).locked);
+async function isEconomySeasonLocked(guildId) {
+  const state = await getSeasonState(guildId);
+  return Boolean(state.locked);
 }
 
-function lockEconomySeason(guildId, metadata = {}) {
-  const all = readJson(seasonPath, {});
-  const current = getSeasonState(guildId);
-  all[guildId] = {
-    ...current,
-    locked: true,
-    lastResetAt: Math.max(0, Math.floor(Number(metadata.at) || Date.now())),
-    lockedBy: metadata.by || null,
-    lockedReason: metadata.reason || null,
-  };
-  writeJson(seasonPath, all);
-  return normalizeState(all[guildId]);
+async function lockEconomySeason(guildId, metadata = {}) {
+  await getSeasonState(guildId);
+  const lastResetAt = Math.max(0, Math.floor(Number(metadata.at) || Date.now()));
+
+  await query(
+    `UPDATE economy_season SET locked = 1, last_reset_at = ?, locked_by = ?, locked_reason = ? WHERE guild_id = ?`,
+    [lastResetAt, metadata.by || null, metadata.reason || null, guildId]
+  );
+
+  return getSeasonState(guildId);
 }
 
-function openEconomySeason(guildId, metadata = {}) {
-  const all = readJson(seasonPath, {});
-  const current = getSeasonState(guildId);
-  all[guildId] = {
-    ...current,
-    locked: false,
-    seasonNumber: Math.max(1, current.seasonNumber + 1),
-    lastOpenedAt: Math.max(0, Math.floor(Number(metadata.at) || Date.now())),
-    openedBy: metadata.by || null,
-    lockedReason: null,
-  };
-  writeJson(seasonPath, all);
-  return normalizeState(all[guildId]);
+async function openEconomySeason(guildId, metadata = {}) {
+  const current = await getSeasonState(guildId);
+  const lastOpenedAt = Math.max(0, Math.floor(Number(metadata.at) || Date.now()));
+  const nextSeasonNumber = Math.max(1, current.seasonNumber + 1);
+
+  await query(
+    `UPDATE economy_season SET locked = 0, season_number = ?, last_opened_at = ?, opened_by = ?, locked_reason = NULL WHERE guild_id = ?`,
+    [nextSeasonNumber, lastOpenedAt, metadata.by || null, guildId]
+  );
+
+  return getSeasonState(guildId);
 }
 
 module.exports = {

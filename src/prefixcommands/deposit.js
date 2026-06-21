@@ -24,8 +24,8 @@ module.exports = {
   async execute(message, args) {
     const guildId = message.guild.id;
     const userId = message.author.id;
-    const config = getGuildConfig(guildId);
-    const balance = getUserBalance(guildId, userId);
+    const config = await getGuildConfig(guildId);
+    const balance = await getUserBalance(guildId, userId);
 
     if (balance.wallet <= 0) {
       return message.reply({
@@ -61,8 +61,8 @@ module.exports = {
       });
     }
 
-    const deposited = depositToBank(guildId, userId, parsedAmount);
-    const after = getUserBalance(guildId, userId);
+    const deposited = await depositToBank(guildId, userId, parsedAmount);
+    const after = await getUserBalance(guildId, userId);
 
     return message.reply({
       embeds: [

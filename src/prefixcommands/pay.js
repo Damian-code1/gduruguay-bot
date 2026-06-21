@@ -17,8 +17,8 @@ module.exports = {
       });
     }
 
-    const config = getGuildConfig(message.guild.id);
-    const balance = getUserBalance(message.guild.id, message.author.id);
+    const config = await getGuildConfig(message.guild.id);
+    const balance = await getUserBalance(message.guild.id, message.author.id);
     const amount = parseAmountInput(args.slice(1).join(' '), balance.wallet);
 
     if (!amount || amount <= 0) {
@@ -27,7 +27,7 @@ module.exports = {
       });
     }
 
-    const transferred = transferWallet(message.guild.id, message.author.id, target.id, amount);
+    const transferred = await transferWallet(message.guild.id, message.author.id, target.id, amount);
     if (!transferred) {
       return message.reply({
         embeds: [new EmbedBuilder().setTitle('❌ Fondos insuficientes').setColor(0xED4245).setDescription('No tenés suficiente saldo para esa transferencia.')],

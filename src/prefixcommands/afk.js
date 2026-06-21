@@ -16,7 +16,7 @@ module.exports = {
     const currentNickname = message.member?.nickname || message.author.username;
     const afkNickname = buildAfkNickname(currentNickname);
 
-    setAfk(message.guild.id, message.author.id, {
+    await setAfk(message.guild.id, message.author.id, {
       reason,
       since: Date.now(),
       username: message.author.username,

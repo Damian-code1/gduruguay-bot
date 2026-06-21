@@ -15,10 +15,10 @@ module.exports = {
     const resolved = await resolveUserTarget(message, args[0]);
     const target = resolved?.user || message.author;
     const targetMember = resolved?.member || await message.guild.members.fetch(target.id).catch(() => null);
-    const config = getGuildConfig(message.guild.id);
-    const balance = getUserBalance(message.guild.id, target.id);
+    const config = await getGuildConfig(message.guild.id);
+    const balance = await getUserBalance(message.guild.id, target.id);
     const passiveStatus = targetMember ? getPassiveStatus(message.guild.id, targetMember) : null;
-    const incomeBonus = targetMember ? getIncomeBonusForMember(message.guild.id, targetMember) : { percent: 0, roles: [] };
+    const incomeBonus = targetMember ? await getIncomeBonusForMember(message.guild.id, targetMember) : { percent: 0, roles: [] };
 
     const fields = [
       { name: 'En mano', value: formatCurrency(balance.wallet, config), inline: true },

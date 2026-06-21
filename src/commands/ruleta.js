@@ -144,8 +144,8 @@ module.exports = {
     }
 
     const member = await getGuildMember(interaction);
-    const config = getGuildConfig(interaction.guild.id);
-    const remaining = getRemainingCooldown(interaction.guild.id, interaction.user.id, 'ruleta_daily', RULETA_DAILY_MS);
+    const config = await getGuildConfig(interaction.guild.id);
+    const remaining = await getRemainingCooldown(interaction.guild.id, interaction.user.id, 'ruleta_daily', RULETA_DAILY_MS);
     if (remaining > 0) {
       return interaction.reply({
         embeds: [
@@ -162,7 +162,7 @@ module.exports = {
     const bangChance = stateBefore.currentChance;
     const isBang = Math.random() < bangChance;
 
-    setCooldown(interaction.guild.id, interaction.user.id, 'ruleta_daily', Date.now());
+    await setCooldown(interaction.guild.id, interaction.user.id, 'ruleta_daily', Date.now());
 
     await interaction.deferReply();
 

@@ -27,7 +27,7 @@ module.exports = {
       return message.reply('❌ Solo podés resetear tu propio cooldown de aura.');
     }
 
-    setCooldown(guildId, target.id, 'aura_daily', 0);
+    await setCooldown(guildId, target.id, 'aura_daily', 0);
 
     return message.reply(`✅ Cooldown de aura reseteado para <@${target.id}>.`);
   },

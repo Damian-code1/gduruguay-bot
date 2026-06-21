@@ -365,7 +365,7 @@ module.exports = {
 
     handleGiveawayMessage(message).catch(() => null);
 
-    processOverdueLoan(guildId, message.author.id);
+    processOverdueLoan(guildId, message.author.id).catch(err => console.error('Error en processOverdueLoan (messageCreate):', err));
 
     // ── Anti-raid ─────────────────────────────────────────────────────────────
     const messageCount = recordMessage(message.author.id, guildId, message.content);
@@ -446,8 +446,8 @@ module.exports = {
     }
 
     // ── AFK ───────────────────────────────────────────────────────────────────
-    const afkRecord = getAfk(guildId, message.author.id);
-    const removedAfk = clearAfk(guildId, message.author.id);
+    const afkRecord = await getAfk(guildId, message.author.id);
+    const removedAfk = await clearAfk(guildId, message.author.id);
     if (removedAfk) {
       if (message.member?.manageable) {
         const restoreNickname = afkRecord?.previousNickname || null;
@@ -466,9 +466,9 @@ module.exports = {
     const mentionedAfk = [];
     for (const [, user] of message.mentions.users) {
       if (user.id === message.author.id) continue;
-      const afk = getAfk(guildId, user.id);
+      const afk = await getAfk(guildId, user.id);
       if (afk) {
-        recordAfkMention(guildId, user.id, {
+        await recordAfkMention(guildId, user.id, {
           userId: message.author.id,
           username: message.author.username,
           content: message.content,
@@ -518,9 +518,9 @@ module.exports = {
 
     // ── Sin prefijo → economía pasiva ─────────────────────────────────────────
     if (!message.content.startsWith('-')) {
-      if (!isEconomySeasonLocked(guildId)) {
-        tryGrantMessageReward(guildId, message.author.id);
-        if (message.member) tryGrantPassiveIncome(guildId, message.member);
+      if (!(await isEconomySeasonLocked(guildId))) {
+        await tryGrantMessageReward(guildId, message.author.id);
+        if (message.member) await tryGrantPassiveIncome(guildId, message.member);
       }
       return;
     }
@@ -578,12 +578,12 @@ module.exports = {
 
     // ── Economy checks ────────────────────────────────────────────────────────
     if (isEconomyCommand(command, canonicalName)) {
-      if (isEconomySeasonLocked(guildId)) {
+      if (await isEconomySeasonLocked(guildId)) {
         return message.reply(
           '⛔ La economía está cerrada por fin de season. Esperá a que el dueño use `-openseason`.'
         );
       }
-      const economyBan = getEconomyBanStatus(guildId, message.author.id);
+      const economyBan = await getEconomyBanStatus(guildId, message.author.id);
       if (economyBan.banned) {
         const ban = economyBan.ban;
         return message.reply(

@@ -58,8 +58,8 @@ module.exports = {
     // Alias para blackjack
     if (game === 'bj') game = 'blackjack';
     
-    const config = getGuildConfig(message.guild.id);
-    const balance = getUserBalance(message.guild.id, message.author.id);
+    const config = await getGuildConfig(message.guild.id);
+    const balance = await getUserBalance(message.guild.id, message.author.id);
 
     if (!game || game === 'help' || game === 'list') {
       return message.reply({
@@ -227,19 +227,19 @@ module.exports = {
           lossPenalty = amount;
         }
 
-        const beforeWallet = getUserBalance(message.guild.id, message.author.id).wallet;
+        const beforeWallet = (await getUserBalance(message.guild.id, message.author.id)).wallet;
         let movedAmount = 0;
 
         if (won === true) {
           bonusMultiplier = getBonusMultiplier();
           const reward = Math.floor(winReward * bonusMultiplier);
-          addToWallet(message.guild.id, message.author.id, reward);
+          await addToWallet(message.guild.id, message.author.id, reward);
         }
         if (won === false) {
-          removeFromWallet(message.guild.id, message.author.id, lossPenalty);
+          await removeFromWallet(message.guild.id, message.author.id, lossPenalty);
         }
 
-        const afterWallet = getUserBalance(message.guild.id, message.author.id).wallet;
+        const afterWallet = (await getUserBalance(message.guild.id, message.author.id)).wallet;
         movedAmount = afterWallet - beforeWallet;
 
         const status = won === null ? '🤝 Empate' : won ? '✅ Ganaste' : '❌ Perdiste';
@@ -408,19 +408,19 @@ module.exports = {
             lossPenalty = amount;
           }
 
-          const beforeWallet = getUserBalance(message.guild.id, message.author.id).wallet;
+          const beforeWallet = (await getUserBalance(message.guild.id, message.author.id)).wallet;
           let movedAmount = 0;
 
           if (won === true) {
             bonusMultiplier = getBonusMultiplier();
             const reward = Math.floor(winReward * bonusMultiplier);
-            addToWallet(message.guild.id, message.author.id, reward);
+            await addToWallet(message.guild.id, message.author.id, reward);
           }
           if (won === false) {
-            removeFromWallet(message.guild.id, message.author.id, lossPenalty);
+            await removeFromWallet(message.guild.id, message.author.id, lossPenalty);
           }
 
-          const afterWallet = getUserBalance(message.guild.id, message.author.id).wallet;
+          const afterWallet = (await getUserBalance(message.guild.id, message.author.id)).wallet;
           movedAmount = afterWallet - beforeWallet;
 
           const status = won === null ? '🤝 Empate' : won ? '✅ Ganaste' : '❌ Perdiste';
@@ -506,19 +506,19 @@ module.exports = {
     if (game !== 'rps') {
       won = applyHouseEdge(won);
     }
-    const beforeWallet = getUserBalance(message.guild.id, message.author.id).wallet;
+    const beforeWallet = (await getUserBalance(message.guild.id, message.author.id)).wallet;
     let movedAmount = 0;
 
     if (won === true) {
       bonusMultiplier = getBonusMultiplier();
       const reward = Math.floor(winReward * bonusMultiplier);
-      addToWallet(message.guild.id, message.author.id, reward);
+      await addToWallet(message.guild.id, message.author.id, reward);
     }
     if (won === false) {
-      removeFromWallet(message.guild.id, message.author.id, lossPenalty);
+      await removeFromWallet(message.guild.id, message.author.id, lossPenalty);
     }
 
-    const afterWallet = getUserBalance(message.guild.id, message.author.id).wallet;
+    const afterWallet = (await getUserBalance(message.guild.id, message.author.id)).wallet;
     movedAmount = afterWallet - beforeWallet;
 
     const status = won === null ? '🤝 Empate' : won ? '✅ Ganaste' : '❌ Perdiste';

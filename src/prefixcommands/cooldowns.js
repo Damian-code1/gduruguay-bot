@@ -49,28 +49,29 @@ module.exports = {
 
     const guildId = message.guild.id;
     const userId = message.author.id;
-    const config = getGuildConfig(guildId);
+    const config = await getGuildConfig(guildId);
     const passiveConfig = getGuildPassiveConfig(guildId);
     const chicken = getChicken(guildId, userId);
     const showPassive = hasPassiveRole(message.member, passiveConfig.roleRewards);
 
     const coreLines = [
-      line('-daily', formatStatus(getRemainingCooldown(guildId, userId, 'daily', config.dailyCooldownMs)), `(base: ${cooldownText(config.dailyCooldownMs)})`),
-      line('-work', formatStatus(getRemainingCooldown(guildId, userId, 'work', config.workCooldownMs)), `(base: ${cooldownText(config.workCooldownMs)})`),
-      line('-aura', formatStatus(getRemainingCooldown(guildId, userId, 'aura_daily', AURA_COOLDOWN_MS)), `(base: ${cooldownText(AURA_COOLDOWN_MS)})`),
-      line('-rob', formatStatus(getRemainingCooldown(guildId, userId, 'rob_cmd', ROB_COOLDOWN_MS)), `(base: ${cooldownText(ROB_COOLDOWN_MS)})`),
-      line('-coinflip', formatStatus(getRemainingCooldown(guildId, userId, 'coinflip_cmd', COINFLIP_COOLDOWN_MS)), `(base: ${cooldownText(COINFLIP_COOLDOWN_MS)})`),
-      line('/ruleta', formatStatus(getRemainingCooldown(guildId, userId, 'ruleta_daily', RULETA_DAILY_MS)), `(base: ${cooldownText(RULETA_DAILY_MS)})`),
+      line('-daily', formatStatus(await getRemainingCooldown(guildId, userId, 'daily', config.dailyCooldownMs)), `(base: ${cooldownText(config.dailyCooldownMs)})`),
+      line('-work', formatStatus(await getRemainingCooldown(guildId, userId, 'work', config.workCooldownMs)), `(base: ${cooldownText(config.workCooldownMs)})`),
+      line('-aura', formatStatus(await getRemainingCooldown(guildId, userId, 'aura_daily', AURA_COOLDOWN_MS)), `(base: ${cooldownText(AURA_COOLDOWN_MS)})`),
+      line('-rob', formatStatus(await getRemainingCooldown(guildId, userId, 'rob_cmd', ROB_COOLDOWN_MS)), `(base: ${cooldownText(ROB_COOLDOWN_MS)})`),
+      line('-coinflip', formatStatus(await getRemainingCooldown(guildId, userId, 'coinflip_cmd', COINFLIP_COOLDOWN_MS)), `(base: ${cooldownText(COINFLIP_COOLDOWN_MS)})`),
+      line('/ruleta', formatStatus(await getRemainingCooldown(guildId, userId, 'ruleta_daily', RULETA_DAILY_MS)), `(base: ${cooldownText(RULETA_DAILY_MS)})`),
     ];
 
-    const incomeLines = listIncomeActions().map(action => {
-      const remaining = getRemainingCooldown(guildId, userId, `income_${action.key}`, action.cooldownMs);
-      return line(`-${action.key}`, formatStatus(remaining), `(base: ${cooldownText(action.cooldownMs)})`);
-    });
+    const incomeLines = [];
+    for (const action of listIncomeActions()) {
+      const remaining = await getRemainingCooldown(guildId, userId, `income_${action.key}`, action.cooldownMs);
+      incomeLines.push(line(`-${action.key}`, formatStatus(remaining), `(base: ${cooldownText(action.cooldownMs)})`));
+    }
 
     const extraLines = [
       config.messageReward?.enabled
-        ? line('-message reward', formatStatus(getRemainingCooldown(guildId, userId, 'message', config.messageReward.cooldownMs)), `(base: ${cooldownText(config.messageReward.cooldownMs)})`)
+        ? line('-message reward', formatStatus(await getRemainingCooldown(guildId, userId, 'message', config.messageReward.cooldownMs)), `(base: ${cooldownText(config.messageReward.cooldownMs)})`)
         : '• -message reward — Desactivado',
       chicken
         ? line('-pollito train', formatStatus(Math.max(0, TRAIN_COOLDOWN_MS - (Date.now() - (chicken.lastTrainAt || 0)))), `(base: ${cooldownText(TRAIN_COOLDOWN_MS)})`)

@@ -19,7 +19,7 @@ module.exports = {
 
     const emoji = String(args[0] || '').trim();
     if (!emoji) {
-      const current = getGuildConfig(message.guild.id);
+      const current = await getGuildConfig(message.guild.id);
       return message.reply({
         embeds: [
           new EmbedBuilder()
@@ -31,8 +31,8 @@ module.exports = {
       });
     }
 
-    setCurrencyEmoji(message.guild.id, emoji);
-    const config = getGuildConfig(message.guild.id);
+    await setCurrencyEmoji(message.guild.id, emoji);
+    const config = await getGuildConfig(message.guild.id);
 
     const embed = new EmbedBuilder()
       .setTitle('✅ Moneda actualizada')

@@ -699,8 +699,8 @@ module.exports = {
     }
 
     if (sub === 'status' || sub === 'me' || sub === 'info') {
-      const current = getAura(guildId, userId);
-      const remaining = getRemainingCooldown(guildId, userId, 'aura_daily', AURA_COOLDOWN_MS);
+      const current = await getAura(guildId, userId);
+      const remaining = await getRemainingCooldown(guildId, userId, 'aura_daily', AURA_COOLDOWN_MS);
       const auraDetailed = formatAuraDetailed(current.aura);
 
       return message.reply(makeV2Card({
@@ -736,7 +736,7 @@ module.exports = {
 
       if (sub === 'resetdata') {
         const removed = removeAuraData(guildId, target.id);
-        setCooldown(guildId, target.id, 'aura_daily', 0);
+        await setCooldown(guildId, target.id, 'aura_daily', 0);
 
         return message.reply(makeV2Card({
           title: '🧹 Aura reseteada',
@@ -776,7 +776,7 @@ module.exports = {
         addAura(guildId, target.id, delta);
       }
 
-      setCooldown(guildId, target.id, 'aura_daily', 0);
+      await setCooldown(guildId, target.id, 'aura_daily', 0);
 
       return message.reply(makeV2Card({
         title: '🧹 Aura modificada',
@@ -791,7 +791,7 @@ module.exports = {
       }));
     }
 
-    const remaining = getRemainingCooldown(guildId, userId, 'aura_daily', AURA_COOLDOWN_MS);
+    const remaining = await getRemainingCooldown(guildId, userId, 'aura_daily', AURA_COOLDOWN_MS);
     if (remaining > 0) {
       return message.reply(makeV2Card({
         title: '⏳ Aura en cooldown',
@@ -824,12 +824,12 @@ module.exports = {
       700
     );
 
-    const current = getAura(guildId, userId);
+    const current = await getAura(guildId, userId);
     const roll = rollAuraDelta();
     const { delta } = roll;
     const next = addAura(guildId, userId, delta);
 
-    setCooldown(guildId, userId, 'aura_daily', Date.now());
+    await setCooldown(guildId, userId, 'aura_daily', Date.now());
 
     const resultPayload = makeV2Card({
       title: getResultTitle(delta),

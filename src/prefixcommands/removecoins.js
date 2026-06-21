@@ -33,19 +33,19 @@ module.exports = {
       });
     }
 
-    const balance = getUserBalance(message.guild.id, target.id);
+    const balance = await getUserBalance(message.guild.id, target.id);
     if (balance.wallet < amount) {
       return message.reply({
         embeds: [
           new EmbedBuilder()
             .setTitle('❌ Fondos insuficientes')
             .setColor(0xED4245)
-            .setDescription(`${target} solo tiene ${formatCurrency(balance.wallet, getGuildConfig(message.guild.id))}`),
+            .setDescription(`${target} solo tiene ${formatCurrency(balance.wallet, await getGuildConfig(message.guild.id))}`),
         ],
       });
     }
 
-    removeFromWallet(message.guild.id, target.id, amount);
+    await removeFromWallet(message.guild.id, target.id, amount);
     addRemoveCoinsLog(message.guild.id, {
       at: Date.now(),
       staffId: message.author.id,
@@ -56,7 +56,7 @@ module.exports = {
       reason: 'Removido por admin',
     });
 
-    const config = getGuildConfig(message.guild.id);
+    const config = await getGuildConfig(message.guild.id);
     return message.reply({
       embeds: [
         new EmbedBuilder()

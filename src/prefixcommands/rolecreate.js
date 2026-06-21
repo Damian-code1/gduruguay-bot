@@ -130,8 +130,8 @@ module.exports = {
 
       let shopText = 'No agregado a shop.';
       if (shopPrice) {
-        setRolePrice(guildId, createdRole, shopPrice, message.author.id);
-        const config = getGuildConfig(guildId);
+        await setRolePrice(guildId, createdRole, shopPrice, message.author.id);
+        const config = await getGuildConfig(guildId);
         shopText = `Agregado a shop por ${formatCurrency(shopPrice, config)}.`;
       }
 

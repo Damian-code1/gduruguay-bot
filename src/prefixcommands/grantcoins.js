@@ -33,8 +33,8 @@ module.exports = {
       });
     }
 
-    addToWallet(message.guild.id, target.id, amount);
-    addGrantCoinsLog(message.guild.id, {
+    await addToWallet(message.guild.id, target.id, amount);
+    await addGrantCoinsLog(message.guild.id, {
       at: Date.now(),
       staffId: message.author.id,
       staffTag: message.author.tag,
@@ -43,7 +43,7 @@ module.exports = {
       amount,
     });
 
-    const config = getGuildConfig(message.guild.id);
+    const config = await getGuildConfig(message.guild.id);
     return message.reply({
       embeds: [
         new EmbedBuilder()

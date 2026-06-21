@@ -30,8 +30,8 @@ module.exports = {
       });
     }
 
-    const config = getGuildConfig(message.guild.id);
-    const remaining = getRemainingCooldown(message.guild.id, message.author.id, 'coinflip_cmd', COINFLIP_COOLDOWN_MS);
+    const config = await getGuildConfig(message.guild.id);
+    const remaining = await getRemainingCooldown(message.guild.id, message.author.id, 'coinflip_cmd', COINFLIP_COOLDOWN_MS);
     if (remaining > 0) {
       return message.reply({
         embeds: [
@@ -43,7 +43,7 @@ module.exports = {
       });
     }
 
-    const balance = getUserBalance(message.guild.id, message.author.id);
+    const balance = await getUserBalance(message.guild.id, message.author.id);
     const amount = parseAmountInput(args.slice(1).join(' '), balance.wallet);
 
     if (!amount || amount <= 0) {
@@ -58,7 +58,7 @@ module.exports = {
       });
     }
 
-    setCooldown(message.guild.id, message.author.id, 'coinflip_cmd', Date.now());
+    await setCooldown(message.guild.id, message.author.id, 'coinflip_cmd', Date.now());
 
     const anim = new EmbedBuilder()
       .setTitle('🪙 Coinflip')
@@ -94,15 +94,15 @@ module.exports = {
       : chosen === 'cara'
         ? 'cruz'
         : 'cara';
-    const beforeWallet = getUserBalance(message.guild.id, message.author.id).wallet;
+    const beforeWallet = (await getUserBalance(message.guild.id, message.author.id)).wallet;
 
     if (win) {
-      addToWallet(message.guild.id, message.author.id, amount);
+      await addToWallet(message.guild.id, message.author.id, amount);
     } else {
-      removeFromWallet(message.guild.id, message.author.id, amount);
+      await removeFromWallet(message.guild.id, message.author.id, amount);
     }
 
-    const afterWallet = getUserBalance(message.guild.id, message.author.id).wallet;
+    const afterWallet = (await getUserBalance(message.guild.id, message.author.id)).wallet;
     const realDelta = afterWallet - beforeWallet;
     const movementText = realDelta === 0
       ? 'Sin cambios reales (tu saldo cambió por otra acción al mismo tiempo).'

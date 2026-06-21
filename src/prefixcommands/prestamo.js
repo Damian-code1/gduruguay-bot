@@ -33,8 +33,8 @@ function formatDueDate(timestamp) {
   return `<t:${Math.floor(timestamp / 1000)}:F>`;
 }
 
-function debitFromCombinedBalance(guildId, userId, requestedAmount) {
-  const balance = getUserBalance(guildId, userId);
+async function debitFromCombinedBalance(guildId, userId, requestedAmount) {
+  const balance = await getUserBalance(guildId, userId);
   const amount = Math.max(0, Math.floor(requestedAmount || 0));
   if (amount <= 0 || balance.total <= 0) return 0;
 
@@ -43,13 +43,13 @@ function debitFromCombinedBalance(guildId, userId, requestedAmount) {
   const fromBank = Math.max(0, payable - fromWallet);
 
   if (fromWallet > 0) {
-    removeFromWallet(guildId, userId, fromWallet);
+    await removeFromWallet(guildId, userId, fromWallet);
   }
 
   if (fromBank > 0) {
-    const moved = withdrawFromBank(guildId, userId, fromBank);
+    const moved = await withdrawFromBank(guildId, userId, fromBank);
     if (moved > 0) {
-      removeFromWallet(guildId, userId, moved);
+      await removeFromWallet(guildId, userId, moved);
     }
   }
 
@@ -74,14 +74,14 @@ module.exports = {
   async execute(message, args) {
     const guildId = message.guild.id;
     const userId = message.author.id;
-    const config = getGuildConfig(guildId);
+    const config = await getGuildConfig(guildId);
     const sub = String(args[0] || 'estado').toLowerCase();
     const canManage = message.member?.permissions?.has(PermissionFlagsBits.Administrator) || isStaff(message.member, guildId);
 
-    const penalty = processOverdueLoan(guildId, userId);
+    const penalty = await processOverdueLoan(guildId, userId);
 
     if (sub === 'help' || sub === 'ayuda' || sub === '?') {
-      const activeLoans = getGuildActiveLoans(guildId);
+      const activeLoans = await getGuildActiveLoans(guildId);
       const helpEmbed = new EmbedBuilder()
         .setTitle('🏦 Ayuda de Préstamos')
         .setColor(0x5865F2)
@@ -148,7 +148,7 @@ module.exports = {
         return message.reply(`❌ Uso: \`-prestamo pedir <monto>\` (entre ${formatCurrency(LOAN_MIN_PRINCIPAL, config)} y ${formatCurrency(LOAN_MAX_PRINCIPAL, config)}).`);
       }
 
-      const profileBefore = getLoanProfile(guildId, userId);
+      const profileBefore = await getLoanProfile(guildId, userId);
       if (profileBefore.hasActiveLoan) {
         const active = profileBefore.activeLoan;
         return message.reply({
@@ -167,12 +167,12 @@ module.exports = {
         });
       }
 
-      const requestRemaining = getRemainingCooldown(guildId, userId, 'loan_request', LOAN_REQUEST_COOLDOWN_MS);
+      const requestRemaining = await getRemainingCooldown(guildId, userId, 'loan_request', LOAN_REQUEST_COOLDOWN_MS);
       if (requestRemaining > 0) {
         return message.reply(`⏳ No podés pedir otro préstamo todavía. Esperá **${cooldownText(requestRemaining)}**.`);
       }
 
-      const issued = requestLargeLoan(guildId, userId, {
+      const issued = await requestLargeLoan(guildId, userId, {
         principal: loanAmount,
         interestPercent: LOAN_INTEREST_PERCENT,
         termDays: LOAN_TERM_DAYS,
@@ -182,8 +182,8 @@ module.exports = {
         return message.reply('❌ No se pudo crear el préstamo ahora. Probá de nuevo en unos segundos.');
       }
 
-      addToWallet(guildId, userId, issued.loan.principal);
-      setCooldown(guildId, userId, 'loan_request', Date.now());
+      await addToWallet(guildId, userId, issued.loan.principal);
+      await setCooldown(guildId, userId, 'loan_request', Date.now());
 
       return message.reply({
         embeds: [
@@ -206,25 +206,25 @@ module.exports = {
     }
 
     if (sub === 'pagar' || sub === 'pay') {
-      const profile = getLoanProfile(guildId, userId);
+      const profile = await getLoanProfile(guildId, userId);
       if (!profile.hasActiveLoan) {
         return message.reply('ℹ️ No tenés ningún préstamo activo. Usá `-prestamo pedir`.');
       }
 
       const active = profile.activeLoan;
-      const balance = getUserBalance(guildId, userId);
+      const balance = await getUserBalance(guildId, userId);
       const requested = parseAmountInput(args.slice(1).join(' '), balance.total);
 
       if (!requested || requested <= 0) {
         return message.reply('❌ Uso: `-prestamo pagar <monto|all|half>`');
       }
 
-      const paidFromBalance = debitFromCombinedBalance(guildId, userId, Math.min(requested, active.remaining));
+      const paidFromBalance = await debitFromCombinedBalance(guildId, userId, Math.min(requested, active.remaining));
       if (paidFromBalance <= 0) {
         return message.reply('❌ No tenés fondos (mano + banco) para pagar ese monto.');
       }
 
-      const payment = applyLoanRepayment(guildId, userId, paidFromBalance);
+      const payment = await applyLoanRepayment(guildId, userId, paidFromBalance);
       if (!payment.ok) {
         return message.reply('❌ No se pudo registrar el pago del préstamo.');
       }
@@ -271,7 +271,7 @@ module.exports = {
         return message.reply('❌ No pude resolver ese usuario.');
       }
 
-      const removed = clearUserLoan(guildId, targetId);
+      const removed = await clearUserLoan(guildId, targetId);
       if (!removed.ok) {
         return message.reply({
           embeds: [
@@ -302,7 +302,7 @@ module.exports = {
     }
 
     if (sub === 'estado' || sub === 'status') {
-      const profile = getLoanProfile(guildId, userId);
+      const profile = await getLoanProfile(guildId, userId);
       if (!profile.hasActiveLoan) {
         return message.reply({
           embeds: [

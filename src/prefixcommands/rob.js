@@ -50,9 +50,9 @@ module.exports = {
       });
     }
 
-    const config = getGuildConfig(guildId);
-    const thiefBalance = getUserBalance(guildId, thiefId);
-    const victimBalance = getUserBalance(guildId, victim.id);
+    const config = await getGuildConfig(guildId);
+    const thiefBalance = await getUserBalance(guildId, thiefId);
+    const victimBalance = await getUserBalance(guildId, victim.id);
 
     if (victimBalance.wallet <= 0) {
       return message.reply({
@@ -65,12 +65,12 @@ module.exports = {
       });
     }
 
-    const victimLock = getVictimRobberyCooldown(guildId, victim.id);
+    const victimLock = await getVictimRobberyCooldown(guildId, victim.id);
     if (victimLock.remaining > 0) {
       return message.reply({ embeds: [buildCooldownEmbed(victimLock)] });
     }
 
-    const remaining = getRemainingCooldown(guildId, thiefId, 'rob_cmd', ROB_COOLDOWN_MS);
+    const remaining = await getRemainingCooldown(guildId, thiefId, 'rob_cmd', ROB_COOLDOWN_MS);
     if (remaining > 0) {
       return message.reply({
         embeds: [
@@ -82,7 +82,7 @@ module.exports = {
       });
     }
 
-    setCooldown(guildId, thiefId, 'rob_cmd', Date.now());
+    await setCooldown(guildId, thiefId, 'rob_cmd', Date.now());
 
     const miniGameSuccess = await runRobberyChallenge(message, victim.id, { hard: false });
     if (!miniGameSuccess) {
@@ -94,8 +94,8 @@ module.exports = {
         );
 
       if (failPenalty > 0) {
-        removeFromWallet(guildId, thiefId, failPenalty);
-        addToWallet(guildId, victim.id, failPenalty);
+        await removeFromWallet(guildId, thiefId, failPenalty);
+        await addToWallet(guildId, victim.id, failPenalty);
       }
 
       return message.reply({
@@ -113,12 +113,12 @@ module.exports = {
       });
     }
 
-    const currentLock = getVictimRobberyCooldown(guildId, victim.id);
+    const currentLock = await getVictimRobberyCooldown(guildId, victim.id);
     if (currentLock.remaining > 0) {
       return message.reply({ embeds: [buildCooldownEmbed(currentLock)] });
     }
 
-    const victimNow = getUserBalance(guildId, victim.id);
+    const victimNow = await getUserBalance(guildId, victim.id);
     if (victimNow.wallet <= 0) {
       return message.reply({
         embeds: [
@@ -131,7 +131,7 @@ module.exports = {
     }
 
     const basePercent = randomInt(4, 10) / 100;
-    const revengeBonus = getRevengeBonusPercent(guildId, thiefId, victim.id);
+    const revengeBonus = await getRevengeBonusPercent(guildId, thiefId, victim.id);
     const totalPercent = Math.min(0.25, basePercent + revengeBonus);
 
     const stolen = Math.min(victimNow.wallet, Math.floor(victimNow.wallet * totalPercent));
@@ -146,9 +146,9 @@ module.exports = {
       });
     }
 
-    removeFromWallet(guildId, victim.id, stolen);
-    addToWallet(guildId, thiefId, stolen);
-    recordRobbery(guildId, thiefId, victim.id, stolen, {
+    await removeFromWallet(guildId, victim.id, stolen);
+    await addToWallet(guildId, thiefId, stolen);
+    await recordRobbery(guildId, thiefId, victim.id, stolen, {
       amountWallet: stolen,
       amountBank: 0,
       command: 'rob',
