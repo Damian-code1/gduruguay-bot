@@ -3,7 +3,7 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const config = require('../config');
 const { replyEmbed } = require('../utils/respond');
-const { getAllDepartments, setDepartmentRole } = require('../utils/departmentStore');
+const { getAllDepartments } = require('../utils/departmentStore');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -26,35 +26,33 @@ module.exports = {
     const departments = getAllDepartments();
     const guildRoles = interaction.guild.roles.cache;
 
-    const ok = [];
+    // Este comando ya no guarda nada en base de datos: el bot detecta los
+    // roles de departamento en vivo por nombre exacto. Esto solo verifica
+    // y muestra qué roles existen y cuáles faltan crear.
+    const found = [];
     const notFound = [];
 
     for (const dept of departments) {
-      const deptLower = dept.toLowerCase();
-      const role =
-        guildRoles.find((r) => r.name === dept) ||
-        guildRoles.find((r) => r.name.toLowerCase() === deptLower) ||
-        guildRoles.find((r) => r.name.toLowerCase().includes(deptLower));
-
+      const role = guildRoles.find((r) => r.name.toLowerCase() === dept.toLowerCase());
       if (role) {
-        await setDepartmentRole(interaction.guildId, dept, role.id);
-        ok.push(`✅ **${dept}** → <@&${role.id}>`);
+        found.push(`✅ **${dept}** → <@&${role.id}>`);
       } else {
-        notFound.push(`❌ **${dept}** — no encontrado`);
+        notFound.push(`❌ **${dept}** — no existe un rol con ese nombre exacto`);
       }
     }
 
     const embed = new EmbedBuilder()
-      .setTitle('⚙️ Setup automático de departamentos')
-      .setColor(notFound.length === 0 ? config.colors.success : ok.length === 0 ? config.colors.danger : config.colors.warning)
-      .setFooter({ text: `${ok.length} configurados · ${notFound.length} no encontrados` })
+      .setTitle('⚙️ Verificación de roles de departamento')
+      .setColor(notFound.length === 0 ? config.colors.success : found.length === 0 ? config.colors.danger : config.colors.warning)
+      .setDescription('El bot asigna departamentos buscando un rol en el servidor con el **mismo nombre exacto**. No hace falta configurar nada más — solo creá el rol con ese nombre.')
+      .setFooter({ text: `${found.length} encontrados · ${notFound.length} faltantes` })
       .setTimestamp();
 
-    if (ok.length) embed.addFields({ name: `✅ Configurados (${ok.length})`, value: ok.join('\n') });
+    if (found.length) embed.addFields({ name: `✅ Roles encontrados (${found.length})`, value: found.join('\n') });
     if (notFound.length) {
       embed.addFields({
-        name: `❌ No encontrados (${notFound.length})`,
-        value: `${notFound.join('\n')}\n\n*Usá \`/deprole set\` para configurarlos manualmente.*`,
+        name: `❌ Roles faltantes (${notFound.length})`,
+        value: `${notFound.join('\n')}\n\n*Creá un rol en el servidor con el nombre exacto del departamento para que funcione.*`,
       });
     }
 
