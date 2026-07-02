@@ -9,8 +9,9 @@ const { buildDmLogPayload } = require('../utils/dmLogUi');
 const DEPT_ASSIGN_FAIL_MESSAGES = {
   not_configured: 'Ese departamento todavía no tiene un rol configurado. Avisale a un admin.',
   role_missing: 'El rol de ese departamento fue eliminado del servidor. Avisale a un admin.',
-  not_manageable: 'No tengo permisos para asignarte ese rol (jerarquía).',
-  hierarchy: 'El rol de ese departamento está por encima del mío, no lo puedo asignar. Avisale a un admin.',
+  is_owner: 'Discord no permite que ningún bot asigne o remueva roles al dueño del servidor. Esto es una restricción de la plataforma, no del bot.',
+  member_hierarchy: 'No puedo modificar tus roles porque tenés un rol igual o superior al mío en la jerarquía del server. Avisale a un admin para que suba el rol del bot.',
+  hierarchy: 'El rol de ese departamento está por encima del mío en la jerarquía, no lo puedo asignar. Avisale a un admin para que suba el rol del bot por encima de ese departamento.',
 };
 
 module.exports = {

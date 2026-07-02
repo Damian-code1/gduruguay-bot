@@ -4,13 +4,19 @@ const { SlashCommandBuilder, EmbedBuilder, MessageFlags, ContainerBuilder, TextD
 const config = require('../config');
 
 const AREDL_LEVELS_URL = 'https://api.aredl.net/v2/api/aredl/levels';
+
 const LIST_WORTHY_SHEET_ID = '15YvW2rRQKlkNpdFMTaRt9CWefDkng6BSh6xRDXSw9r8';
 const LIST_WORTHY_GID = '0';
-const LIST_WORTHY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const NLW_SHEET_ID = '1YxUE2kkvhT2E6AjnkvTf-o8iu_shSLbuFkEFcZOvieA';
+const NLW_GID = '0';
+
+const SHEET_CACHE_TTL_MS = 5 * 60 * 1000;
+const AREDL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const listWorthyCache = { fetchedAt: 0, entries: [] };
+const nlwCache        = { fetchedAt: 0, entries: [] };
 let aredlCache = { fetchedAt: 0, levels: [] };
-const AREDL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function normalizeName(text) {
   return String(text || '')
@@ -73,19 +79,43 @@ function parseListWorthyEntries(csvText) {
   return entries;
 }
 
+async function fetchSheetCsv(sheetId, gid) {
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+  const resp = await fetch(url, { headers: { Accept: 'text/csv,*/*', 'User-Agent': 'Mozilla/5.0' } });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.text();
+}
+
 async function getListWorthyEntries() {
   const now = Date.now();
-  if (listWorthyCache.entries.length && now - listWorthyCache.fetchedAt < LIST_WORTHY_CACHE_TTL_MS) {
+  if (listWorthyCache.entries.length && now - listWorthyCache.fetchedAt < SHEET_CACHE_TTL_MS) {
     return listWorthyCache.entries;
   }
-  const url = `https://docs.google.com/spreadsheets/d/${LIST_WORTHY_SHEET_ID}/export?format=csv&gid=${LIST_WORTHY_GID}`;
-  const resp = await fetch(url, { headers: { Accept: 'text/csv,*/*', 'User-Agent': 'Mozilla/5.0' } });
-  if (!resp.ok) return listWorthyCache.entries;
-  const csvText = await resp.text();
-  const entries = parseListWorthyEntries(csvText);
-  listWorthyCache.fetchedAt = now;
-  listWorthyCache.entries = entries;
-  return entries;
+  try {
+    const csvText = await fetchSheetCsv(LIST_WORTHY_SHEET_ID, LIST_WORTHY_GID);
+    const entries = parseListWorthyEntries(csvText);
+    listWorthyCache.fetchedAt = now;
+    listWorthyCache.entries = entries;
+  } catch (err) {
+    console.warn('List Worthy Sheet error:', err.message);
+  }
+  return listWorthyCache.entries;
+}
+
+async function getNlwEntries() {
+  const now = Date.now();
+  if (nlwCache.entries.length && now - nlwCache.fetchedAt < SHEET_CACHE_TTL_MS) {
+    return nlwCache.entries;
+  }
+  try {
+    const csvText = await fetchSheetCsv(NLW_SHEET_ID, NLW_GID);
+    const entries = parseListWorthyEntries(csvText);
+    nlwCache.fetchedAt = now;
+    nlwCache.entries = entries;
+  } catch (err) {
+    console.warn('NLW Sheet error:', err.message);
+  }
+  return nlwCache.entries;
 }
 
 async function getAredlLevels() {
@@ -111,7 +141,7 @@ function matchLevels(levels, query) {
   return { match: partial[0], matches: partial, exact: false };
 }
 
-function matchListWorthy(entries, query) {
+function matchSheetEntry(entries, query) {
   const q = normalizeName(query);
   const exact = entries.find((e) => e.normalized === q);
   if (exact) return { match: exact, exact: true };
@@ -120,11 +150,17 @@ function matchListWorthy(entries, query) {
   return { match: null, exact: false };
 }
 
-function buildContainer({ title, lines, footer }) {
+function buildContainer({ title, levelName, lines, footer }) {
   const container = new ContainerBuilder();
   container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${title}`));
-  container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+
+  if (levelName) {
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Nivel:** ${levelName}`));
+    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+  }
+
   container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+
   if (footer) {
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`> ${footer}`));
@@ -142,11 +178,12 @@ module.exports = {
   async execute(interaction) {
     const query = interaction.options.getString('nivel', true).trim();
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 }).catch(() => null);
+    await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 }).catch(() => null);
 
-    const [aredlLevels, listWorthyEntries] = await Promise.all([
+    const [aredlLevels, listWorthyEntries, nlwEntries] = await Promise.all([
       getAredlLevels(),
       getListWorthyEntries(),
+      getNlwEntries(),
     ]);
 
     const aredlResult = matchLevels(aredlLevels, query);
@@ -167,19 +204,31 @@ module.exports = {
     }
 
     const level = aredlResult.match;
-    let nlwTier = level.nlw_tier;
-    let source = 'AREDL API';
+
+    // Prioridad: NLW sheet → List Worthy sheet → campo nlw_tier de la API
+    let nlwTier = null;
+    let source  = null;
+
+    const nlwMatch = matchSheetEntry(nlwEntries, level.name);
+    if (nlwMatch.match) {
+      nlwTier = nlwMatch.match.tier;
+      source  = 'NLW Sheet';
+    }
 
     if (!nlwTier) {
-      const lw = matchListWorthy(listWorthyEntries, level.name);
-      if (lw.match) {
-        nlwTier = lw.match.tier;
-        source = 'List Worthy Sheet';
+      const lwMatch = matchSheetEntry(listWorthyEntries, level.name);
+      if (lwMatch.match) {
+        nlwTier = lwMatch.match.tier;
+        source  = 'List Worthy Sheet';
       }
     }
 
+    if (!nlwTier && level.nlw_tier) {
+      nlwTier = level.nlw_tier;
+      source  = 'AREDL API';
+    }
+
     const lines = [
-      `**Nivel:** ${level.name}`,
       `**Posición AREDL:** #${level.position}`,
       `**NLW Tier:** ${nlwTier ? `**${nlwTier}**` : 'No detectado'}`,
       `**Fuente:** ${nlwTier ? source : 'No disponible en ninguna fuente'}`,
@@ -187,6 +236,7 @@ module.exports = {
 
     const container = buildContainer({
       title: '🎯 Tier del nivel',
+      levelName: level.name,
       lines,
       footer: 'Made by Evosen • GD Uruguay Bot',
     });

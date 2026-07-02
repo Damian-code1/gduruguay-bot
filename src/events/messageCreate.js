@@ -6,6 +6,9 @@ const { getAfk, clearAfk } = require('../utils/afkStore');
 const { getDepartmentChannel, findDepartment } = require('../utils/departmentStore');
 const { assignDepartmentToMember } = require('../utils/departmentAssign');
 
+const DEPT_COOLDOWN_MS = 3000;
+const deptCooldowns = new Map();
+
 const ASSIGN_FAIL_MESSAGES = {
   not_configured: null, // el mensaje no matcheó ningún departamento válido -> se ignora en silencio
   role_missing: '⚠️ El rol de ese departamento fue eliminado del servidor. Avisale a un admin.',
@@ -19,6 +22,13 @@ async function handleDepartmentChannel(message) {
 
   const dept = findDepartment(message.content);
   if (!dept) return false; // no matcheó ningún departamento, se ignora sin ensuciar el canal
+
+  const now = Date.now();
+  const last = deptCooldowns.get(message.author.id) || 0;
+  if (now - last < DEPT_COOLDOWN_MS) {
+    return true; // en cooldown, se ignora en silencio para no ensuciar el canal
+  }
+  deptCooldowns.set(message.author.id, now);
 
   const result = await assignDepartmentToMember(message.member, dept.name);
 

@@ -23,13 +23,18 @@ async function assignDepartmentToMember(member, departmentName) {
     return { ok: false, reason: 'role_missing' };
   }
 
-  if (!member.manageable && !member.roles.cache.has(role.id)) {
-    return { ok: false, reason: 'not_manageable' };
+  const botMember = member.guild.members.me;
+
+  if (member.id === member.guild.ownerId) {
+    return { ok: false, reason: 'is_owner' };
   }
 
-  const botMember = member.guild.members.me;
   if (botMember.roles.highest.comparePositionTo(role) <= 0) {
     return { ok: false, reason: 'hierarchy' };
+  }
+
+  if (!member.manageable) {
+    return { ok: false, reason: 'member_hierarchy' };
   }
 
   // Ya lo tiene: nada que hacer.

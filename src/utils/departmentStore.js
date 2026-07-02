@@ -25,7 +25,14 @@ const DEPARTMENTS = [
   { name: 'Treinta y Tres', aliases: ['treinta y tres', 'treintaytres', 'tt'] },
 ];
 
-const FUZZY_THRESHOLD = 2; // máximo de caracteres de diferencia permitidos
+const FUZZY_SIMILARITY_MIN = 0.9; 
+
+function similarity(a, b) {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  const dist = levenshteinDistance(a, b);
+  return 1 - dist / maxLen;
+}
 
 function normalize(text) {
   return String(text || '').toLowerCase().trim();
@@ -69,21 +76,23 @@ function findDepartment(input) {
     if (dept.aliases.some((alias) => normalize(alias) === normalizedInput)) return dept;
   }
 
+  if (normalizedInput.length < 3) return null;
+
   let bestMatch = null;
-  let bestDistance = Infinity;
+  let bestSimilarity = 0;
 
   for (const dept of DEPARTMENTS) {
-    const nameDistance = levenshteinDistance(normalizedInput, normalize(dept.name));
-    if (nameDistance < bestDistance && nameDistance <= FUZZY_THRESHOLD) {
+    const nameSim = similarity(normalizedInput, normalize(dept.name));
+    if (nameSim > bestSimilarity && nameSim >= FUZZY_SIMILARITY_MIN) {
       bestMatch = dept;
-      bestDistance = nameDistance;
+      bestSimilarity = nameSim;
     }
 
     for (const alias of dept.aliases) {
-      const aliasDistance = levenshteinDistance(normalizedInput, normalize(alias));
-      if (aliasDistance < bestDistance && aliasDistance <= FUZZY_THRESHOLD) {
+      const aliasSim = similarity(normalizedInput, normalize(alias));
+      if (aliasSim > bestSimilarity && aliasSim >= FUZZY_SIMILARITY_MIN) {
         bestMatch = dept;
-        bestDistance = aliasDistance;
+        bestSimilarity = aliasSim;
       }
     }
   }

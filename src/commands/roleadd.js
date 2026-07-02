@@ -27,6 +27,8 @@ module.exports = {
   async execute(interaction) {
     if (!(await requireStaff(interaction))) return;
 
+    await interaction.deferReply().catch(() => null);
+
     const targetUser = interaction.options.getUser('usuario', true);
     const roleQuery = interaction.options.getString('rol', true);
 
