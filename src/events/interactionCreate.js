@@ -1,9 +1,10 @@
 'use strict';
 
-const { EmbedBuilder, MessageFlags } = require('discord.js');
+const { EmbedBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const config = require('../config');
 const { handleLevelSearchInteraction } = require('../utils/levelSearchInteractions');
 const { assignDepartmentToMember } = require('../utils/departmentAssign');
+const { buildDmLogPayload } = require('../utils/dmLogUi');
 
 const DEPT_ASSIGN_FAIL_MESSAGES = {
   not_configured: 'Ese departamento todavía no tiene un rol configurado. Avisale a un admin.',
@@ -101,6 +102,28 @@ module.exports = {
           await command.handleButton(interaction, ownerId, parseInt(pageStr, 10));
         } catch (error) {
           console.error('Error manejando botón de /cmds:', error);
+          await interaction
+            .reply({ content: 'Ocurrió un error al cambiar de página.', flags: MessageFlags.Ephemeral })
+            .catch(() => null);
+        }
+        return;
+      }
+
+      if (namespace === 'dmlog' && interaction.isButton()) {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+          return interaction
+            .reply({ content: 'Solo administradores pueden ver esto.', flags: MessageFlags.Ephemeral })
+            .catch(() => null);
+        }
+
+        const [, pageStr] = interaction.customId.split(':');
+        const targetPage = Math.max(0, parseInt(pageStr, 10) || 0);
+
+        try {
+          const payload = await buildDmLogPayload(targetPage);
+          await interaction.update(payload);
+        } catch (error) {
+          console.error('Error manejando botón de /dmcheck /dmreplies:', error);
           await interaction
             .reply({ content: 'Ocurrió un error al cambiar de página.', flags: MessageFlags.Ephemeral })
             .catch(() => null);

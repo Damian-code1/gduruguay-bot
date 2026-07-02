@@ -14,6 +14,7 @@ module.exports = {
   clientId: process.env.CLIENT_ID,
   guildId: process.env.GUILD_ID,
   modLogChannelId: process.env.MOD_LOG_CHANNEL_ID || '1496348718558089216',
+  ownerId: process.env.OWNER_ID || '1407737422732853331',
 
   db: {
     host: process.env.DB_HOST,
