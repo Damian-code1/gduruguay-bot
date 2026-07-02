@@ -1,26 +1,33 @@
 'use strict';
 
-const { EmbedBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder } = require('discord.js');
+const {
+  EmbedBuilder,
+  MessageFlags,
+  ContainerBuilder,
+  TextDisplayBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+} = require('discord.js');
 
 /**
- * Responde a una interacción con un embed.
+ * Responde a una interacción.
  *
- * Regla del bot: TODOS los embeds son ephemeral por defecto.
- * Excepción: si el embed necesita pinguear a un usuario o @here/@everyone
- * (por ejemplo, notificar públicamente a la persona sancionada), se envía
- * como mensaje normal (no ephemeral) para que la mención funcione,
- * ya que Discord no dispara notificaciones de mención en mensajes ephemeral.
+ * Regla del bot:
+ * - Si el mensaje pinguea a un usuario o @here/@everyone (pings: true),
+ *   se envía como embed clásico público (Discord no dispara notificaciones
+ *   de mención en mensajes ephemeral / Components V2 ephemeral).
+ * - En cualquier otro caso, se envía como Components V2 ephemeral: simple,
+ *   sin color de borde, con separadores (dividers) entre secciones.
  *
  * @param {import('discord.js').ChatInputCommandInteraction} interaction
  * @param {{
  *   embed: EmbedBuilder,
- *   pings?: boolean,          // true => respuesta pública (porque pinguea)
- *   content?: string,         // contenido de texto plano opcional (ej. la mención)
+ *   pings?: boolean,
+ *   content?: string,
  *   components?: any[],
  * }} options
  */
 async function replyEmbed(interaction, { embed, pings = false, content, components } = {}) {
-  // Comandos que pinguean (menciones/@here/@everyone): embed normal, público, no V2.
   if (pings) {
     const payload = {
       embeds: embed ? [embed] : [],
@@ -33,26 +40,39 @@ async function replyEmbed(interaction, { embed, pings = false, content, componen
     return interaction.reply(payload);
   }
 
-  // Todo lo demás: ephemeral con Components V2.
   const container = new ContainerBuilder();
+  let sectionsAdded = 0;
+
+  const addDividerIfNeeded = () => {
+    if (sectionsAdded > 0) {
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
+      );
+    }
+    sectionsAdded += 1;
+  };
+
+  if (content) {
+    addDividerIfNeeded();
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
+  }
 
   if (embed) {
-    const title = embed.data.title ? `### ${embed.data.title}\n` : '';
+    const title = embed.data.title ? `### ${embed.data.title}` : '';
     const description = embed.data.description || '';
-    if (title || description) {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${title}${description}`));
+    const headerText = [title, description].filter(Boolean).join('\n');
+    if (headerText) {
+      addDividerIfNeeded();
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText));
     }
+
     if (embed.data.fields?.length) {
+      addDividerIfNeeded();
       const fieldsText = embed.data.fields
         .map((f) => `**${f.name}**\n${f.value}`)
         .join('\n\n');
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(fieldsText));
     }
-    if (embed.data.color) container.setAccentColor(embed.data.color);
-  }
-
-  if (content) {
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
   }
 
   const payload = {
@@ -66,7 +86,7 @@ async function replyEmbed(interaction, { embed, pings = false, content, componen
   return interaction.reply(payload);
 }
 
-/** Embed de error rápido (siempre ephemeral, nunca pinguea). */
+/** Mensaje de error rápido (siempre ephemeral, nunca pinguea). */
 async function replyError(interaction, description, color = 0xC0392B) {
   const embed = new EmbedBuilder().setTitle('❌ Error').setDescription(description).setColor(color);
   return replyEmbed(interaction, { embed, pings: false });

@@ -19,6 +19,7 @@ async function requireStaff(interaction) {
 
 /**
  * Verifica que el comando se use en un canal permitido (si hay restricción configurada).
+ * Staff (admin o rol de staff configurado en la DB) puede usar comandos en cualquier canal.
  * @returns {Promise<boolean>} true si puede continuar
  */
 async function requireAllowedChannel(interaction) {
