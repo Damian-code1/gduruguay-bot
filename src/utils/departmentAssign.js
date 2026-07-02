@@ -1,7 +1,27 @@
 'use strict';
 
 const { DEPARTMENTS } = require('./departmentStore');
-const { cleanRoleName, similarity } = require('./roleFuzzyMatch');
+const { similarity } = require('./roleFuzzyMatch');
+
+// Versión más agresiva que cleanRoleName: además de sacar símbolos al
+// inicio, quita CUALQUIER carácter no alfanumérico al principio del string
+// carácter por carácter (cubre emojis compuestos de 2+ code points, que a
+// veces la regex \W no elimina de una sola pasada), y también recorta
+// espacios/símbolos sueltos en el medio causados por el emoji separado
+// del texto (ej. "➤ Montevideo" -> "Montevideo").
+function stripLeadingSymbols(name) {
+  let s = String(name || '').trim();
+  // Sacar caracteres no alfanuméricos del inicio, uno por uno, hasta
+  // llegar a una letra o número (soporta emojis de 1 o 2 code points).
+  while (s.length && !/[\p{L}\p{N}]/u.test(s[0])) {
+    s = s.slice(1);
+  }
+  return s.trim().toLowerCase();
+}
+
+function cleanRoleName(name) {
+  return stripLeadingSymbols(name);
+}
 
 // Nombres "limpios" de departamentos (sin emojis/símbolos) para reconocer
 // después si un rol cualquiera del server corresponde a un departamento —
