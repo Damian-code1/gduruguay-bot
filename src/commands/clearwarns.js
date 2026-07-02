@@ -8,6 +8,7 @@ const { addModerationLog } = require('../utils/moderationLogStore');
 const { clearWarns } = require('../utils/warnStore');
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('clearwarns')
     .setDescription('Elimina todas las advertencias de un usuario.')

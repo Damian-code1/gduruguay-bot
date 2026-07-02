@@ -6,6 +6,7 @@ const { requireStaff, requireAllowedChannel } = require('../utils/guards');
 const { replyEmbed, replyError } = require('../utils/respond');
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('slowmode')
     .setDescription('Configura el modo lento del canal actual.')

@@ -8,6 +8,7 @@ const { sendModerationDm } = require('../utils/moderationDm');
 const { addModerationLog } = require('../utils/moderationLogStore');
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('kick')
     .setDescription('Expulsa a un usuario del servidor.')

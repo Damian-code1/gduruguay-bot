@@ -14,6 +14,7 @@ const {
 } = require('../utils/commandChannelStore');
 
 module.exports = {
+  visibility: 'admin', // 'public' | 'staff' | 'admin' (usado por /cmds)
   data: new SlashCommandBuilder()
     .setName('cmdchannel')
     .setDescription('Define en qué canal(es) se pueden usar los comandos del bot.')

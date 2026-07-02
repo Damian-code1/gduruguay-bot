@@ -6,6 +6,7 @@ const { replyEmbed } = require('../utils/respond');
 const { setAfk } = require('../utils/afkStore');
 
 module.exports = {
+  visibility: 'public', // 'public' | 'staff' | 'admin' (usado por /cmds)
   data: new SlashCommandBuilder()
     .setName('afk')
     .setDescription('Te marca como AFK. Se quita automáticamente cuando volvés a escribir.')
@@ -25,3 +26,5 @@ module.exports = {
     return replyEmbed(interaction, { embed });
   },
 };
+
+

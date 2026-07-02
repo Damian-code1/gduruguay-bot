@@ -11,6 +11,7 @@ const { clearMuteTimer } = require('../utils/muteRuntime');
 const { query } = require('../utils/database');
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('unmute')
     .setDescription('Quita el mute activo de un usuario.')

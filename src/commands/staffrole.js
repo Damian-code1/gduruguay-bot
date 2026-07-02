@@ -16,6 +16,7 @@ function formatRoles(roleIds) {
 }
 
 module.exports = {
+  visibility: 'staff', // 'public' | 'staff' | 'admin' (usado por /cmds)
   data: new SlashCommandBuilder()
     .setName('staffrole')
     .setDescription('Define qué roles tienen permisos de staff (moderación) en el bot.')

@@ -18,6 +18,7 @@ const TIPO_EMOJI = {
 };
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('modlogs')
     .setDescription('Muestra el historial de moderación de un usuario.')

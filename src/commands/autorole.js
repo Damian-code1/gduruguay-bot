@@ -7,6 +7,7 @@ const { replyEmbed, replyError } = require('../utils/respond');
 const { setAutorole, getAutorole, clearAutorole } = require('../utils/autoroleStore');
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('autorole')
     .setDescription('Configura el rol que se asigna automáticamente a nuevos miembros.')

@@ -7,6 +7,7 @@ const { replyEmbed } = require('../utils/respond');
 const { getWarns } = require('../utils/warnStore');
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('warns')
     .setDescription('Muestra las advertencias de un usuario.')

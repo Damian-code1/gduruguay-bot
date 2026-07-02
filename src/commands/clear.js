@@ -7,6 +7,7 @@ const { replyEmbed, replyError, postToModLog } = require('../utils/respond');
 const { addModerationLog } = require('../utils/moderationLogStore');
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('clear')
     .setDescription('Borra mensajes recientes del canal.')

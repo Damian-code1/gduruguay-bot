@@ -9,6 +9,7 @@ const { addModerationLog } = require('../utils/moderationLogStore');
 const { addWarn, getWarns } = require('../utils/warnStore');
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('warn')
     .setDescription('Aplica una advertencia a un usuario.')

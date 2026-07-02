@@ -24,7 +24,7 @@ async function updatePresence(client) {
     const humanCount = await countHumanMembers(guild);
 
     client.user.setPresence({
-      activities: [{ name: `a ${humanCount} miembros`, type: ActivityType.Watching }],
+      activities: [{ name: `${humanCount} miembros`, type: ActivityType.Watching }],
       status: 'online',
     });
   } catch (err) {

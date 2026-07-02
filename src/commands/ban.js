@@ -8,6 +8,7 @@ const { sendModerationDm } = require('../utils/moderationDm');
 const { addModerationLog } = require('../utils/moderationLogStore');
 
 module.exports = {
+  visibility: 'staff', // 'public' | 'staff' | 'admin' (usado por /cmds)
   data: new SlashCommandBuilder()
     .setName('ban')
     .setDescription('Banea permanentemente a un usuario del servidor.')

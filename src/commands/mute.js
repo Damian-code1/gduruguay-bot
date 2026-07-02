@@ -14,6 +14,7 @@ const { query } = require('../utils/database');
 const MAX_MUTE_MS = 365 * 24 * 60 * 60 * 1000;
 
 module.exports = {
+  visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('mute')
     .setDescription('Sistema de mute por rol.')

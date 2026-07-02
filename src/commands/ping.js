@@ -5,6 +5,7 @@ const config = require('../config');
 const { replyEmbed } = require('../utils/respond');
 
 module.exports = {
+  visibility: 'public',
   data: new SlashCommandBuilder().setName('ping').setDescription('Muestra la latencia del bot.'),
 
   async execute(interaction) {
