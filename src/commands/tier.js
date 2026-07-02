@@ -1,16 +1,16 @@
 'use strict';
 
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
 const config = require('../config');
-const { replyEmbed, replyError } = require('../utils/respond');
 
-const AREDL_API = 'https://api.aredl.net/v2';
-const NLW_API = 'https://nlw.oat.zone';
+const AREDL_LEVELS_URL = 'https://api.aredl.net/v2/api/aredl/levels';
 const LIST_WORTHY_SHEET_ID = '15YvW2rRQKlkNpdFMTaRt9CWefDkng6BSh6xRDXSw9r8';
 const LIST_WORTHY_GID = '0';
 const LIST_WORTHY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const listWorthyCache = { fetchedAt: 0, entries: [] };
+let aredlCache = { fetchedAt: 0, levels: [] };
+const AREDL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function normalizeName(text) {
   return String(text || '')
@@ -88,120 +88,109 @@ async function getListWorthyEntries() {
   return entries;
 }
 
-function matchEntries(entries, query, nameGetter) {
+async function getAredlLevels() {
+  const now = Date.now();
+  if (aredlCache.levels.length && now - aredlCache.fetchedAt < AREDL_CACHE_TTL_MS) {
+    return aredlCache.levels;
+  }
+  const resp = await fetch(AREDL_LEVELS_URL, { headers: { Accept: 'application/json' } });
+  if (!resp.ok) return aredlCache.levels;
+  const data = await resp.json();
+  const levels = Array.isArray(data) ? data : data?.data || [];
+  aredlCache = { fetchedAt: now, levels };
+  return levels;
+}
+
+function matchLevels(levels, query) {
   const q = normalizeName(query);
-  const exact = entries.find((e) => normalizeName(nameGetter(e)) === q);
+  const exact = levels.find((l) => normalizeName(l.name) === q);
   if (exact) return { match: exact, matches: [exact], exact: true };
-  const partial = entries.filter((e) => normalizeName(nameGetter(e)).includes(q));
+  const partial = levels.filter((l) => normalizeName(l.name).includes(q));
   if (!partial.length) return { match: null, matches: [], exact: false };
   if (partial.length > 1) return { match: null, matches: partial.slice(0, 10), exact: false };
   return { match: partial[0], matches: partial, exact: false };
 }
 
-async function fetchListWorthyByName(name) {
-  const entries = await getListWorthyEntries().catch(() => []);
-  if (!entries.length) return null;
-  return matchEntries(entries, name, (e) => e.name);
+function matchListWorthy(entries, query) {
+  const q = normalizeName(query);
+  const exact = entries.find((e) => e.normalized === q);
+  if (exact) return { match: exact, exact: true };
+  const partial = entries.filter((e) => e.normalized.includes(q));
+  if (partial.length === 1) return { match: partial[0], exact: false };
+  return { match: null, exact: false };
 }
 
-async function fetchNlwByName(name) {
-  const resp = await fetch(`${NLW_API}/list?type=all`, { headers: { Accept: 'application/json' } }).catch(() => null);
-  if (!resp?.ok) return null;
-  const list = await resp.json().catch(() => null);
-  if (!Array.isArray(list)) return null;
-  return matchEntries(list, name, (e) => e.name || '');
-}
-
-async function fetchAredlByName(name) {
-  const resp = await fetch(`${AREDL_API}/api/aredl/levels`, { headers: { Accept: 'application/json' } }).catch(() => null);
-  if (!resp?.ok) return null;
-  const data = await resp.json().catch(() => null);
-  const levels = Array.isArray(data) ? data : data?.data || [];
-  return matchEntries(levels, name, (e) => e.name || '');
-}
-
-function getTierFromLevel(level) {
-  if (!level) return null;
-  const fields = ['tier', 'difficulty_tier', 'difficultyTier', 'difficulty', 'difficulty_name', 'difficulty_tier_name', 'difficultyRating'];
-  for (const f of fields) {
-    if (level[f] != null) return level[f];
+function buildContainer({ title, lines, footer }) {
+  const container = new ContainerBuilder();
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${title}`));
+  container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+  if (footer) {
+    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`> ${footer}`));
   }
-  if (level.difficulty?.tier) return level.difficulty.tier;
-  if (level.difficulty?.name) return level.difficulty.name;
-  return null;
+  return container;
 }
 
 module.exports = {
   visibility: 'public',
   data: new SlashCommandBuilder()
     .setName('tier')
-    .setDescription('Devuelve el tier/dificultad de un nivel de Geometry Dash.')
+    .setDescription('Devuelve el tier NLW de un nivel de Geometry Dash.')
     .addStringOption((opt) => opt.setName('nivel').setDescription('Nombre del nivel').setRequired(true)),
 
   async execute(interaction) {
     const query = interaction.options.getString('nivel', true).trim();
-    await interaction.deferReply({ flags: 32768 | 64 }).catch(() => null);
 
-    const [nlwResult, listWorthyResult, aredlResult] = await Promise.all([
-      fetchNlwByName(query),
-      fetchListWorthyByName(query),
-      fetchAredlByName(query),
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 }).catch(() => null);
+
+    const [aredlLevels, listWorthyEntries] = await Promise.all([
+      getAredlLevels(),
+      getListWorthyEntries(),
     ]);
 
-    const nlwTier = nlwResult?.match?.tier ? String(nlwResult.match.tier).trim() : null;
+    const aredlResult = matchLevels(aredlLevels, query);
 
-    if (nlwResult?.match && nlwTier && nlwResult.exact) {
-      const embed = new EmbedBuilder()
-        .setTitle('🎯 Tier del nivel')
-        .setColor(config.colors.primary)
-        .setDescription(`**Nivel:** ${nlwResult.match.name}`)
-        .addFields(
-          { name: 'NLW Tier', value: `**${nlwTier}**`, inline: true },
-          { name: 'List Worthy Tier', value: listWorthyResult?.match ? `**${listWorthyResult.match.tier}**` : 'No detectado', inline: true },
-          { name: 'Fuente', value: 'NLW API' },
-        );
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    if (listWorthyResult?.match && listWorthyResult.exact) {
-      const lw = listWorthyResult.match;
-      const embed = new EmbedBuilder()
-        .setTitle('🎯 Tier del nivel')
-        .setColor(config.colors.primary)
-        .setDescription(`**Nivel:** ${lw.name}`)
-        .addFields(
-          { name: 'List Worthy Tier', value: `**${lw.tier}**`, inline: true },
-          { name: 'NLW Tier', value: nlwTier ? `**${nlwTier}**` : 'No detectado', inline: true },
-          { name: 'Fuente', value: 'List Worthy Sheet' },
-        );
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    if (!aredlResult?.match) {
-      if (aredlResult?.matches?.length) {
-        const embed = new EmbedBuilder()
-          .setTitle('🔍 Varias coincidencias')
-          .setColor(config.colors.warning)
-          .setDescription(`Encontré varios niveles parecidos a **"${query}"**:\n${aredlResult.matches.map((l) => l.name).join('\n')}`);
-        return interaction.editReply({ embeds: [embed] });
+    if (!aredlResult.match) {
+      if (aredlResult.matches.length) {
+        const container = buildContainer({
+          title: '🔍 Varias coincidencias',
+          lines: [`Encontré varios niveles parecidos a **"${query}"**:`, aredlResult.matches.map((l) => l.name).join('\n')],
+        });
+        return interaction.editReply({ components: [container] });
       }
-      const embed = new EmbedBuilder()
-        .setTitle('❌ No encontrado')
-        .setColor(config.colors.danger)
-        .setDescription(`No encontré ningún nivel con el nombre **"${query}"**.`);
-      return interaction.editReply({ embeds: [embed] });
+      const container = buildContainer({
+        title: '❌ No encontrado',
+        lines: [`No encontré ningún nivel con el nombre **"${query}"**.`],
+      });
+      return interaction.editReply({ components: [container] });
     }
 
-    const tier = getTierFromLevel(aredlResult.match);
-    const embed = new EmbedBuilder()
-      .setTitle('🎯 AREDL — Tier del nivel')
-      .setColor(config.colors.primary)
-      .setDescription(`**Nivel:** ${aredlResult.match.name}`)
-      .addFields(
-        { name: 'Tier/dificultad', value: tier != null ? `**${tier}**` : 'No detectado' },
-        { name: 'NLW Tier', value: nlwTier ? `**${nlwTier}**` : 'No detectado', inline: true },
-        { name: 'List Worthy Tier', value: listWorthyResult?.match?.tier ? `**${listWorthyResult.match.tier}**` : 'No detectado', inline: true },
-      );
-    return interaction.editReply({ embeds: [embed] });
+    const level = aredlResult.match;
+    let nlwTier = level.nlw_tier;
+    let source = 'AREDL API';
+
+    if (!nlwTier) {
+      const lw = matchListWorthy(listWorthyEntries, level.name);
+      if (lw.match) {
+        nlwTier = lw.match.tier;
+        source = 'List Worthy Sheet';
+      }
+    }
+
+    const lines = [
+      `**Nivel:** ${level.name}`,
+      `**Posición AREDL:** #${level.position}`,
+      `**NLW Tier:** ${nlwTier ? `**${nlwTier}**` : 'No detectado'}`,
+      `**Fuente:** ${nlwTier ? source : 'No disponible en ninguna fuente'}`,
+    ];
+
+    const container = buildContainer({
+      title: '🎯 Tier del nivel',
+      lines,
+      footer: 'Made by Evosen • GD Uruguay Bot',
+    });
+
+    return interaction.editReply({ components: [container] });
   },
 };
