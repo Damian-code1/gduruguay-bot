@@ -2,7 +2,15 @@
 
 const express = require('express');
 const config = require('./config');
-const { EmbedBuilder } = require('discord.js');
+const {
+  ContainerBuilder,
+  TextDisplayBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  SectionBuilder,
+  ThumbnailBuilder,
+  MessageFlags,
+} = require('discord.js');
 
 const SUBMISSION_STATE_CHANNEL_ID = '1517744927793086575';
 
@@ -14,7 +22,11 @@ function extractYouTubeId(url) {
   return m ? m[1] : null;
 }
 
-function buildDecisionEmbed(data) {
+/**
+ * Arma el Container (Components V2) con el resultado de una submission.
+ * Sin color de borde, con separadores (dividers), estilo simple.
+ */
+function buildDecisionContainer(data) {
   const {
     decision, levelName, staffName, youtubeLink,
     rejectionReason, approvalNote, isNewLevel,
@@ -22,46 +34,59 @@ function buildDecisionEmbed(data) {
   } = data;
 
   const approved = decision === 'approved';
-  const color = approved ? config.colors.success : config.colors.danger;
   const label = approved ? 'Aprobada' : 'Rechazada';
+  const ytId = extractYouTubeId(youtubeLink);
+  const thumbUrl = ytId ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null;
 
-  const fields = [
-    { name: 'Nivel', value: levelName || '—', inline: true },
-    { name: 'Staff', value: staffName || '—', inline: true },
-  ];
+  const container = new ContainerBuilder();
 
-  if (approved) {
-    fields.push({
-      name: 'Estado del nivel',
-      value: isNewLevel ? 'Nivel nuevo agregado a la lista' : 'Nivel ya existente',
-      inline: true,
-    });
-    if (levelPosition) fields.push({ name: 'Puesto en la lista', value: `#${levelPosition}`, inline: true });
-    if (aredlPosition) fields.push({ name: 'AREDL', value: `#${aredlPosition}`, inline: true });
-    if (victorNumber) {
-      fields.push({
-        name: 'Número de victor',
-        value: `${victorNumber}${totalVictors ? ` de ${totalVictors}` : ''}`,
-        inline: true,
-      });
-    }
-    if (approvalNote) fields.push({ name: 'Nota del staff', value: approvalNote, inline: false });
-  } else if (rejectionReason) {
-    fields.push({ name: 'Razón del rechazo', value: rejectionReason, inline: false });
+  // --- Encabezado (con thumbnail del video si hay) ---
+  const headerText = new TextDisplayBuilder().setContent(
+    `### ${approved ? '✅' : '❌'} Tu submission fue ${label.toLowerCase()}\n**${levelName || 'Nivel'}**`,
+  );
+
+  if (thumbUrl) {
+    const headerSection = new SectionBuilder()
+      .addTextDisplayComponents(headerText)
+      .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbUrl));
+    container.addSectionComponents(headerSection);
+  } else {
+    container.addTextDisplayComponents(headerText);
   }
 
-  if (youtubeLink) fields.push({ name: 'Video', value: `[Ver en YouTube](${youtubeLink})`, inline: false });
+  container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
-  const embed = new EmbedBuilder()
-    .setTitle(`${approved ? '✅' : '❌'} Tu submission fue ${label.toLowerCase()}`)
-    .setColor(color)
-    .addFields(fields)
-    .setTimestamp();
+  // --- Detalles principales ---
+  const detailLines = [`**Staff**\n${staffName || '—'}`];
 
-  const ytId = extractYouTubeId(youtubeLink);
-  if (ytId) embed.setThumbnail(`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`);
+  if (approved) {
+    detailLines.push(`**Estado del nivel**\n${isNewLevel ? 'Nivel nuevo agregado a la lista' : 'Nivel ya existente'}`);
+    if (levelPosition) detailLines.push(`**Puesto en la lista**\n#${levelPosition}`);
+    if (aredlPosition) detailLines.push(`**AREDL**\n#${aredlPosition}`);
+    if (victorNumber) {
+      detailLines.push(`**Número de victor**\n${victorNumber}${totalVictors ? ` de ${totalVictors}` : ''}`);
+    }
+  } else if (rejectionReason) {
+    detailLines.push(`**Razón del rechazo**\n${rejectionReason}`);
+  }
 
-  return embed;
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n\n')));
+
+  if (approved && approvalNote) {
+    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`**Nota del staff**\n${approvalNote}`),
+    );
+  }
+
+  if (youtubeLink) {
+    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`[Ver en YouTube](${youtubeLink})`),
+    );
+  }
+
+  return container;
 }
 
 function createServer(client) {
@@ -83,30 +108,31 @@ function createServer(client) {
       const guild = await client.guilds.fetch(config.guildId);
       const member = await guild.members.fetch(discordId).catch(() => null);
 
-      const embed = buildDecisionEmbed(req.body);
+      const container = buildDecisionContainer(req.body);
 
       if (!member) {
-        // No pertenece al server -> avisar en submission-state
         const channel = await client.channels.fetch(SUBMISSION_STATE_CHANNEL_ID).catch(() => null);
         if (channel?.isTextBased()) {
           await channel.send({
-            content: `⚠️ Submission no se pudo enviar, el usuario no pertenece a **${guild.name}**. (ID: ${discordId})`,
+            content: `Submission no se pudo enviar, el usuario no pertenece a **${guild.name}**. (ID: ${discordId})`,
           });
         }
         return res.json({ sent: false, reason: 'user_not_in_guild' });
       }
 
-      await member.send({ embeds: [embed] });
+      await member.send({
+        flags: MessageFlags.IsComponentsV2,
+        components: [container],
+      });
       return res.json({ sent: true });
     } catch (err) {
       console.error('[server] Error en /api/dm-notify:', err);
 
-      // Si falló el DM (ej: DMs cerrados) igual avisamos en el canal de logs
       try {
         const channel = await client.channels.fetch(SUBMISSION_STATE_CHANNEL_ID).catch(() => null);
         if (channel?.isTextBased()) {
           await channel.send({
-            content: `⚠️ No se pudo enviar el DM de la submission al usuario <@${discordId}> (${discordId}). Puede tener los MDs cerrados.`,
+            content: `No se pudo enviar el DM de la submission al usuario <@${discordId}> (${discordId}). Puede tener los MDs cerrados.`,
           });
         }
       } catch {}
