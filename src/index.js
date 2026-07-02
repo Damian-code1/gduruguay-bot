@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const { closePool } = require('./utils/database');
+const { createServer } = require('./server');
 
 const client = new Client({
   intents: [
@@ -63,6 +64,10 @@ process.once('uncaughtException', (err) => {
 });
 process.once('unhandledRejection', (reason) => {
   console.error('unhandledRejection:', reason);
+});
+
+client.once('ready', () => {
+  createServer(client);
 });
 
 client.login(config.token);
