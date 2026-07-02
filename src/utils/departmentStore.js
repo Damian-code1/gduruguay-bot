@@ -1,6 +1,5 @@
 'use strict';
 
-const { query } = require('./database');
 
 // Catálogo fijo de departamentos de Uruguay + alias conocidos para fuzzy matching.
 const DEPARTMENTS = [
@@ -115,49 +114,11 @@ function getAllDepartments() {
 }
 
 // ---------------------------------------------------------------------
-// Persistencia (MySQL) — rol asignado a cada departamento, por servidor
+// Canal de escucha — sigue en MySQL porque es 1 solo valor por server,
+// simple y liviano. Lo único que se guarda es el ID del canal.
 // ---------------------------------------------------------------------
 
-async function getDepartmentRoles(guildId) {
-  const [rows] = await query('SELECT department_name, role_id FROM department_roles WHERE guild_id = ?', [guildId]);
-  const map = {};
-  for (const row of rows) map[row.department_name] = row.role_id;
-  return map;
-}
-
-async function getDepartmentRole(guildId, departmentName) {
-  const [rows] = await query(
-    'SELECT role_id FROM department_roles WHERE guild_id = ? AND department_name = ?',
-    [guildId, departmentName],
-  );
-  return rows[0]?.role_id || null;
-}
-
-async function setDepartmentRole(guildId, departmentName, roleId) {
-  await query(
-    `INSERT INTO department_roles (guild_id, department_name, role_id) VALUES (?, ?, ?)
-     ON DUPLICATE KEY UPDATE role_id = VALUES(role_id)`,
-    [guildId, departmentName, roleId],
-  );
-}
-
-async function removeDepartmentRole(guildId, departmentName) {
-  const [result] = await query(
-    'DELETE FROM department_roles WHERE guild_id = ? AND department_name = ?',
-    [guildId, departmentName],
-  );
-  return result.affectedRows > 0;
-}
-
-/** Devuelve el listado de todos los role_id configurados como departamento (para poder removerlos al cambiar). */
-async function getAllConfiguredRoleIds(guildId) {
-  const roles = await getDepartmentRoles(guildId);
-  return Object.values(roles).filter(Boolean);
-}
-
-// ---------------------------------------------------------------------
-// Persistencia (MySQL) — canal de escucha para auto-detección
-// ---------------------------------------------------------------------
+const { query } = require('./database');
 
 async function getDepartmentChannel(guildId) {
   const [rows] = await query('SELECT channel_id FROM department_channel WHERE guild_id = ?', [guildId]);
@@ -180,11 +141,6 @@ module.exports = {
   DEPARTMENTS,
   findDepartment,
   getAllDepartments,
-  getDepartmentRoles,
-  getDepartmentRole,
-  setDepartmentRole,
-  removeDepartmentRole,
-  getAllConfiguredRoleIds,
   getDepartmentChannel,
   setDepartmentChannel,
   clearDepartmentChannel,
