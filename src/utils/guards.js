@@ -22,6 +22,9 @@ async function requireStaff(interaction) {
  * @returns {Promise<boolean>} true si puede continuar
  */
 async function requireAllowedChannel(interaction) {
+  const staffBypass = await isStaff(interaction.member);
+  if (staffBypass) return true;
+
   const allowed = await getAllowedChannels(interaction.guildId);
   if (!allowed.length) return true;
   if (allowed.includes(interaction.channelId)) return true;
