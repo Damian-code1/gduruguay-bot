@@ -1,10 +1,18 @@
-const { SlashCommandBuilder } = require('discord.js');
+'use strict';
+
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const config = require('../config');
+const { replyEmbed } = require('../utils/respond');
 
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('ping')
-    .setDescription('Responde con Pong!'),
+  data: new SlashCommandBuilder().setName('ping').setDescription('Muestra la latencia del bot.'),
+
   async execute(interaction) {
-    await interaction.reply(`Pong! Latencia: ${interaction.client.ws.ping}ms`);
-  }
+    const embed = new EmbedBuilder()
+      .setTitle('🏓 Pong')
+      .setColor(config.colors.info)
+      .setDescription(`Latencia del WebSocket: **${interaction.client.ws.ping}ms**`);
+
+    return replyEmbed(interaction, { embed });
+  },
 };

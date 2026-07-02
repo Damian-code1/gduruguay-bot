@@ -1,74 +1,59 @@
-const fs = require('fs');
-const path = require('path');
+'use strict';
 
-const storePath = path.join(__dirname, '../staff-roles.json');
+const { query } = require('./database');
 
-function ensureFile() {
-  if (!fs.existsSync(storePath)) {
-    fs.writeFileSync(storePath, JSON.stringify({}, null, 2));
+/** @returns {Promise<string[]>} */
+async function getStaffRoles(guildId) {
+  const [rows] = await query('SELECT role_id FROM staff_roles WHERE guild_id = ?', [guildId]);
+  return rows.map((r) => r.role_id);
+}
+
+async function setStaffRoles(guildId, roleIds) {
+  await query('DELETE FROM staff_roles WHERE guild_id = ?', [guildId]);
+  for (const roleId of roleIds) {
+    await query('INSERT IGNORE INTO staff_roles (guild_id, role_id) VALUES (?, ?)', [guildId, roleId]);
   }
+  return getStaffRoles(guildId);
 }
 
-function readData() {
-  ensureFile();
-  return JSON.parse(fs.readFileSync(storePath, 'utf8'));
-}
-
-function writeData(data) {
-  fs.writeFileSync(storePath, JSON.stringify(data, null, 2));
-}
-
-function setStaffRoles(guildId, roleIds) {
-  const data = readData();
-  data[guildId] = roleIds;
-  writeData(data);
-  return roleIds;
-}
-
-function addStaffRole(guildId, roleId) {
-  const data = readData();
-  if (!data[guildId]) data[guildId] = [];
-  if (!data[guildId].includes(roleId)) {
-    data[guildId].push(roleId);
+async function addStaffRoles(guildId, roleIds) {
+  for (const roleId of roleIds) {
+    await query('INSERT IGNORE INTO staff_roles (guild_id, role_id) VALUES (?, ?)', [guildId, roleId]);
   }
-  writeData(data);
-  return data[guildId];
+  return getStaffRoles(guildId);
 }
 
-function removeStaffRole(guildId, roleId) {
-  const data = readData();
-  if (!data[guildId]) return [];
-  data[guildId] = data[guildId].filter(id => id !== roleId);
-  writeData(data);
-  return data[guildId];
+async function removeStaffRoles(guildId, roleIds) {
+  if (!roleIds.length) return getStaffRoles(guildId);
+  const placeholders = roleIds.map(() => '?').join(',');
+  await query(`DELETE FROM staff_roles WHERE guild_id = ? AND role_id IN (${placeholders})`, [guildId, ...roleIds]);
+  return getStaffRoles(guildId);
 }
 
-function getStaffRoles(guildId) {
-  const data = readData();
-  return data[guildId] || [];
+async function clearStaffRoles(guildId) {
+  await query('DELETE FROM staff_roles WHERE guild_id = ?', [guildId]);
+  return [];
 }
 
-function clearStaffRoles(guildId) {
-  const data = readData();
-  const had = Boolean(data[guildId]);
-  if (had) {
-    delete data[guildId];
-    writeData(data);
-  }
-  return had;
-}
+/**
+ * Determina si un GuildMember es staff (Administrator o tiene un rol de staff configurado).
+ * @param {import('discord.js').GuildMember} member
+ */
+async function isStaff(member) {
+  if (!member?.roles?.cache) return false;
+  if (member.permissions?.has('Administrator')) return true;
 
-function isStaff(member, guildId) {
-  const staffRoleIds = getStaffRoles(guildId);
+  const staffRoleIds = await getStaffRoles(member.guild.id);
   if (!staffRoleIds.length) return false;
-  return member.roles.cache.some(role => staffRoleIds.includes(role.id));
+
+  return member.roles.cache.some((role) => staffRoleIds.includes(role.id));
 }
 
 module.exports = {
-  setStaffRoles,
-  addStaffRole,
-  removeStaffRole,
   getStaffRoles,
+  setStaffRoles,
+  addStaffRoles,
+  removeStaffRoles,
   clearStaffRoles,
   isStaff,
 };

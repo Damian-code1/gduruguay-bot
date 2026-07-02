@@ -1,17 +1,22 @@
+'use strict';
+
 const { getAutorole } = require('../utils/autoroleStore');
-const { handleGiveawayMemberJoin } = require('../utils/giveawayService');
+const { updatePresence } = require('../utils/presence');
 
 module.exports = {
   name: 'guildMemberAdd',
   async execute(member) {
-    handleGiveawayMemberJoin(member).catch(() => null);
-
-    const roleId = getAutorole(member.guild.id);
-    if (!roleId) return;
-
-    const role = member.guild.roles.cache.get(roleId);
-    if (!role) return;
-
-    await member.roles.add(role).catch(() => null);
+    try {
+      if (!member.user.bot) {
+        const roleId = await getAutorole(member.guild.id);
+        if (roleId) {
+          const role = member.guild.roles.cache.get(roleId);
+          if (role) await member.roles.add(role, 'Autorole').catch(() => null);
+        }
+      }
+      await updatePresence(member.client);
+    } catch (err) {
+      console.error('Error en guildMemberAdd:', err);
+    }
   },
 };

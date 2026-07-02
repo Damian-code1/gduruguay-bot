@@ -1,33 +1,18 @@
-# Dependencias
 node_modules/
 
-# Variables de entorno y credenciales
 .env
 .env.local
 .env.*.local
-service-account-key.json
+
 *.pem
 *.key
+service-account*.json
 
-# Datos del bot (JSON locales — se migran a MySQL/Aiven)
-database.json
-department-roles.json
-src/*.json
-!src/package.json
-
-# Logs
 *.log
 npm-debug.log*
 
-# Temporales / cache
-src/temp/
 .DS_Store
 Thumbs.db
 
-# Editor
 .vscode/
 .idea/
-
-# Build / misc
-node
-deploy-commands.json

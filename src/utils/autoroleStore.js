@@ -1,46 +1,22 @@
-const fs = require('fs');
-const path = require('path');
+'use strict';
 
-const autorolePath = path.join(__dirname, '../autorole.json');
+const { query } = require('./database');
 
-function ensureFile() {
-  if (!fs.existsSync(autorolePath)) {
-    fs.writeFileSync(autorolePath, JSON.stringify({}, null, 2));
-  }
+async function setAutorole(guildId, roleId) {
+  await query(
+    `INSERT INTO autorole (guild_id, role_id) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE role_id = VALUES(role_id)`,
+    [guildId, roleId],
+  );
 }
 
-function readData() {
-  ensureFile();
-  return JSON.parse(fs.readFileSync(autorolePath, 'utf8'));
+async function getAutorole(guildId) {
+  const [rows] = await query('SELECT role_id FROM autorole WHERE guild_id = ?', [guildId]);
+  return rows[0]?.role_id || null;
 }
 
-function writeData(data) {
-  fs.writeFileSync(autorolePath, JSON.stringify(data, null, 2));
+async function clearAutorole(guildId) {
+  await query('DELETE FROM autorole WHERE guild_id = ?', [guildId]);
 }
 
-function setAutorole(guildId, roleId) {
-  const data = readData();
-  data[guildId] = roleId;
-  writeData(data);
-}
-
-function getAutorole(guildId) {
-  const data = readData();
-  return data[guildId] || null;
-}
-
-function clearAutorole(guildId) {
-  const data = readData();
-  const had = Boolean(data[guildId]);
-  if (had) {
-    delete data[guildId];
-    writeData(data);
-  }
-  return had;
-}
-
-module.exports = {
-  setAutorole,
-  getAutorole,
-  clearAutorole,
-};
+module.exports = { setAutorole, getAutorole, clearAutorole };
