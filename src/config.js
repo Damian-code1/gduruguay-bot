@@ -13,6 +13,7 @@ module.exports = {
   token: process.env.TOKEN,
   clientId: process.env.CLIENT_ID,
   guildId: process.env.GUILD_ID,
+  googleSheetsApiKey: process.env.GOOGLE_SHEETS_API_KEY || null,
   modLogChannelId: process.env.MOD_LOG_CHANNEL_ID || '1496348718558089216',
   ownerId: process.env.OWNER_ID || '1407737422732853331',
 

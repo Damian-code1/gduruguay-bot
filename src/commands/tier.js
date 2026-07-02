@@ -79,11 +79,50 @@ function parseListWorthyEntries(csvText) {
   return entries;
 }
 
-async function fetchSheetCsv(sheetId, gid) {
-  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
-  const resp = await fetch(url, { headers: { Accept: 'text/csv,*/*', 'User-Agent': 'Mozilla/5.0' } });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.text();
+// Usa la API oficial de Google Sheets con API key en vez del export CSV
+// público — esto evita el problema de que un sheet compartido como
+// "Comentador" (en vez de "Lector") no sea accesible sin sesión iniciada.
+// Trae el sheet completo como un array de filas (array de arrays).
+async function fetchSheetRows(sheetId, gid) {
+  const apiKey = config.googleSheetsApiKey;
+  if (!apiKey) {
+    throw new Error('GOOGLE_SHEETS_API_KEY no está configurada en las variables de entorno');
+  }
+
+  // Necesitamos el nombre real de la hoja (tab) a partir del gid, ya que
+  // la API v4 pide el nombre de la hoja en el range, no el gid numérico.
+  const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?key=${apiKey}&fields=sheets.properties`;
+  const metaResp = await fetch(metaUrl);
+  if (!metaResp.ok) throw new Error(`HTTP ${metaResp.status} (metadata)`);
+  const meta = await metaResp.json();
+  const sheetMeta = (meta.sheets || []).find(
+    (s) => String(s.properties?.sheetId) === String(gid),
+  );
+  const sheetName = sheetMeta?.properties?.title || 'Sheet1';
+
+  const valuesUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}?key=${apiKey}`;
+  const valuesResp = await fetch(valuesUrl);
+  if (!valuesResp.ok) throw new Error(`HTTP ${valuesResp.status} (values)`);
+  const data = await valuesResp.json();
+  return data.values || []; // array de arrays (filas x columnas)
+}
+
+// Convierte las filas crudas de la API v4 al mismo formato de "línea CSV"
+// que ya consumía parseListWorthyEntries, para no tener que reescribir el
+// parser — reusa parseCsvLine reconstruyendo cada fila como línea CSV.
+function rowsToCsvLines(rows) {
+  return rows
+    .map((row) =>
+      row
+        .map((cell) => {
+          const str = String(cell ?? '');
+          return str.includes(',') || str.includes('"')
+            ? `"${str.replace(/"/g, '""')}"`
+            : str;
+        })
+        .join(','),
+    )
+    .join('\n');
 }
 
 async function getListWorthyEntries() {
@@ -92,7 +131,8 @@ async function getListWorthyEntries() {
     return listWorthyCache.entries;
   }
   try {
-    const csvText = await fetchSheetCsv(LIST_WORTHY_SHEET_ID, LIST_WORTHY_GID);
+    const rows = await fetchSheetRows(LIST_WORTHY_SHEET_ID, LIST_WORTHY_GID);
+    const csvText = rowsToCsvLines(rows);
     const entries = parseListWorthyEntries(csvText);
     listWorthyCache.fetchedAt = now;
     listWorthyCache.entries = entries;
@@ -108,7 +148,8 @@ async function getNlwEntries() {
     return nlwCache.entries;
   }
   try {
-    const csvText = await fetchSheetCsv(NLW_SHEET_ID, NLW_GID);
+    const rows = await fetchSheetRows(NLW_SHEET_ID, NLW_GID);
+    const csvText = rowsToCsvLines(rows);
     const entries = parseListWorthyEntries(csvText);
     nlwCache.fetchedAt = now;
     nlwCache.entries = entries;
@@ -228,33 +269,19 @@ module.exports = {
 
     const level = aredlResult.match;
 
-    // Prioridad: NLW sheet → List Worthy sheet → campo nlw_tier de la API
     let nlwTier = null;
-    let source  = null;
-
     const nlwMatch = matchSheetEntry(nlwEntries, level.name);
-    if (nlwMatch.match) {
-      nlwTier = nlwMatch.match.tier;
-      source  = 'NLW Sheet';
-    }
+    if (nlwMatch.match) nlwTier = nlwMatch.match.tier;
+    if (!nlwTier && level.nlw_tier) nlwTier = level.nlw_tier; 
 
-    if (!nlwTier) {
-      const lwMatch = matchSheetEntry(listWorthyEntries, level.name);
-      if (lwMatch.match) {
-        nlwTier = lwMatch.match.tier;
-        source  = 'List Worthy Sheet';
-      }
-    }
-
-    if (!nlwTier && level.nlw_tier) {
-      nlwTier = level.nlw_tier;
-      source  = 'AREDL API';
-    }
+    let listWorthyTier = null;
+    const lwMatch = matchSheetEntry(listWorthyEntries, level.name);
+    if (lwMatch.match) listWorthyTier = lwMatch.match.tier;
 
     const lines = [
       `**Posición AREDL:** #${level.position}`,
       `**NLW Tier:** ${nlwTier ? `**${nlwTier}**` : 'No detectado'}`,
-      `**Fuente:** ${nlwTier ? source : 'No disponible en ninguna fuente'}`,
+      `**List Worthy Tier:** ${listWorthyTier ? `**${listWorthyTier}**` : 'No detectado'}`,
     ];
 
     const container = buildContainer({
