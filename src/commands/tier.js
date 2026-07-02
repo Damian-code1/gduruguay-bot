@@ -204,7 +204,7 @@ module.exports = {
         title: '⚠️ Servicio no disponible',
         lines: ['No pude obtener la lista de niveles de AREDL en este momento. Probá de nuevo en unos minutos.'],
       });
-      return interaction.editReply({ components: [container] }).catch((err) => {
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 }).catch((err) => {
         console.error('[tier] Error en editReply:', err);
       });
     }
@@ -217,13 +217,13 @@ module.exports = {
           title: '🔍 Varias coincidencias',
           lines: [`Encontré varios niveles parecidos a **"${query}"**:`, aredlResult.matches.map((l) => l.name).join('\n')],
         });
-        return interaction.editReply({ components: [container] });
+        return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
       }
       const container = buildContainer({
         title: '❌ No encontrado',
         lines: [`No encontré ningún nivel con el nombre **"${query}"**.`],
       });
-      return interaction.editReply({ components: [container] });
+      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
     }
 
     const level = aredlResult.match;
@@ -264,7 +264,7 @@ module.exports = {
       footer: 'Made by Evosen • GD Uruguay Bot',
     });
 
-    return interaction.editReply({ components: [container] }).catch((err) => {
+    return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 }).catch((err) => {
       console.error('[tier] Error en editReply final:', err);
     });
   },
