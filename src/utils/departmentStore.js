@@ -53,7 +53,12 @@ function levenshteinDistance(str1, str2) {
 }
 
 /**
- * Busca un departamento por nombre exacto, alias exacto, o similitud (fuzzy).
+ * Busca un departamento por nombre EXACTO o alias EXACTO únicamente.
+ * Sin fuzzy matching libre: mensajes cortos random ("xdd", "que paso",
+ * "tt" sin querer decir Treinta y Tres) no deben disparar una asignación
+ * de rol por accidente. El fuzzy matching se reserva solo para la
+ * búsqueda del ROL en Discord (que puede tener emojis/prefijos), no para
+ * interpretar qué quiso decir el usuario.
  * @param {string} input
  * @returns {{name: string, aliases: string[]} | null}
  */
@@ -69,44 +74,23 @@ function findDepartment(input) {
     if (dept.aliases.some((alias) => normalize(alias) === normalizedInput)) return dept;
   }
 
-  // Match exacto de alguna palabra del mensaje (ej. "Yo soy de Montevideo").
+  // Match exacto de alguna palabra del mensaje completo (ej. "Yo soy de Montevideo"),
+  // pero SOLO si el mensaje tiene más de 1 palabra — si el usuario escribió
+  // una sola palabra corta ("tt", "mont") ya se comparó arriba como
+  // normalizedInput completo, así que llegar acá con 1 sola palabra
+  // significa que no matcheó y no debe forzarse nada más.
   const words = normalizedInput.split(/\s+/).filter(Boolean);
-  for (const word of words) {
-    const wordExact = DEPARTMENTS.find((dept) => normalize(dept.name) === word);
-    if (wordExact) return wordExact;
-    for (const dept of DEPARTMENTS) {
-      if (dept.aliases.some((alias) => normalize(alias) === word)) return dept;
-    }
-  }
-
-  // Fuzzy matching por distancia de Levenshtein — igual criterio que la
-  // versión anterior que funcionaba: máximo 2 caracteres de diferencia,
-  // probado contra el mensaje completo y contra cada palabra por separado.
-  const candidates = [normalizedInput, ...words].filter((c) => c.length >= 3);
-  if (!candidates.length) return null;
-
-  let bestMatch = null;
-  let bestDistance = Infinity;
-
-  for (const candidate of candidates) {
-    for (const dept of DEPARTMENTS) {
-      const nameDistance = levenshteinDistance(candidate, normalize(dept.name));
-      if (nameDistance < bestDistance && nameDistance <= FUZZY_THRESHOLD) {
-        bestMatch = dept;
-        bestDistance = nameDistance;
-      }
-
-      for (const alias of dept.aliases) {
-        const aliasDistance = levenshteinDistance(candidate, normalize(alias));
-        if (aliasDistance < bestDistance && aliasDistance <= FUZZY_THRESHOLD) {
-          bestMatch = dept;
-          bestDistance = aliasDistance;
-        }
+  if (words.length > 1) {
+    for (const word of words) {
+      const wordExact = DEPARTMENTS.find((dept) => normalize(dept.name) === word);
+      if (wordExact) return wordExact;
+      for (const dept of DEPARTMENTS) {
+        if (dept.aliases.some((alias) => normalize(alias) === word)) return dept;
       }
     }
   }
 
-  return bestMatch;
+  return null;
 }
 
 function getAllDepartments() {
