@@ -2,6 +2,7 @@
 
 const { EmbedBuilder, MessageFlags } = require('discord.js');
 const config = require('../config');
+const { handleLevelSearchInteraction } = require('../utils/levelSearchInteractions');
 
 module.exports = {
   name: 'interactionCreate',
@@ -31,20 +32,34 @@ module.exports = {
       return;
     }
 
-    if (interaction.isButton()) {
-      const [namespace, ownerId, pageStr] = interaction.customId.split(':');
-      if (namespace !== 'cmds') return;
+    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+      const [namespace] = interaction.customId.split(':');
 
-      const command = interaction.client.commands.get('cmds');
-      if (!command?.handleButton) return;
+      if (namespace === 'lvlsearch') {
+        try {
+          await handleLevelSearchInteraction(interaction);
+        } catch (error) {
+          console.error('Error manejando interacción de /levelsearch:', error);
+          await interaction
+            .reply({ content: 'Ocurrió un error al procesar la búsqueda.', flags: MessageFlags.Ephemeral })
+            .catch(() => null);
+        }
+        return;
+      }
 
-      try {
-        await command.handleButton(interaction, ownerId, parseInt(pageStr, 10));
-      } catch (error) {
-        console.error('Error manejando botón de /cmds:', error);
-        await interaction
-          .reply({ content: 'Ocurrió un error al cambiar de página.', flags: MessageFlags.Ephemeral })
-          .catch(() => null);
+      if (namespace === 'cmds' && interaction.isButton()) {
+        const [, ownerId, pageStr] = interaction.customId.split(':');
+        const command = interaction.client.commands.get('cmds');
+        if (!command?.handleButton) return;
+
+        try {
+          await command.handleButton(interaction, ownerId, parseInt(pageStr, 10));
+        } catch (error) {
+          console.error('Error manejando botón de /cmds:', error);
+          await interaction
+            .reply({ content: 'Ocurrió un error al cambiar de página.', flags: MessageFlags.Ephemeral })
+            .catch(() => null);
+        }
       }
     }
   },
