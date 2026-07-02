@@ -18,9 +18,11 @@ const ASSIGN_FAIL_MESSAGES = {
 
 async function handleDepartmentChannel(message) {
   const channelId = await getDepartmentChannel(message.guild.id);
+  console.log(`[dept-debug] canal configurado=${channelId} canal mensaje=${message.channelId}`);
   if (!channelId || message.channelId !== channelId) return false;
 
   const dept = findDepartment(message.content);
+  console.log(`[dept-debug] mensaje="${message.content}" -> match=${dept?.name || 'ninguno'}`);
   if (!dept) return false; // no matcheó ningún departamento, se ignora sin ensuciar el canal
 
   const now = Date.now();

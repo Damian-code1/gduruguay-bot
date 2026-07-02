@@ -25,14 +25,7 @@ const DEPARTMENTS = [
   { name: 'Treinta y Tres', aliases: ['treinta y tres', 'treintaytres', 'tt'] },
 ];
 
-const FUZZY_SIMILARITY_MIN = 0.9; 
-
-function similarity(a, b) {
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 1;
-  const dist = levenshteinDistance(a, b);
-  return 1 - dist / maxLen;
-}
+const FUZZY_THRESHOLD = 2; 
 
 function normalize(text) {
   return String(text || '').toLowerCase().trim();
@@ -69,7 +62,7 @@ function findDepartment(input) {
   const normalizedInput = normalize(input);
   if (!normalizedInput) return null;
 
-  // Match exacto contra el mensaje completo (comportamiento original).
+  // Match exacto contra el mensaje completo.
   const exactMatch = DEPARTMENTS.find((dept) => normalize(dept.name) === normalizedInput);
   if (exactMatch) return exactMatch;
 
@@ -77,7 +70,7 @@ function findDepartment(input) {
     if (dept.aliases.some((alias) => normalize(alias) === normalizedInput)) return dept;
   }
 
-  // Match exacto de alguna PALABRA del mensaje (ej. "Yo soy de Montevideo").
+  // Match exacto de alguna palabra del mensaje (ej. "Yo soy de Montevideo").
   const words = normalizedInput.split(/\s+/).filter(Boolean);
   for (const word of words) {
     const wordExact = DEPARTMENTS.find((dept) => normalize(dept.name) === word);
@@ -87,27 +80,28 @@ function findDepartment(input) {
     }
   }
 
-  // Fuzzy: probar el mensaje completo Y cada palabra individual por separado,
-  // así "Montevido" (typo) matchea aunque esté dentro de una frase.
+  // Fuzzy matching por distancia de Levenshtein — igual criterio que la
+  // versión anterior que funcionaba: máximo 2 caracteres de diferencia,
+  // probado contra el mensaje completo y contra cada palabra por separado.
   const candidates = [normalizedInput, ...words].filter((c) => c.length >= 3);
   if (!candidates.length) return null;
 
   let bestMatch = null;
-  let bestSimilarity = 0;
+  let bestDistance = Infinity;
 
   for (const candidate of candidates) {
     for (const dept of DEPARTMENTS) {
-      const nameSim = similarity(candidate, normalize(dept.name));
-      if (nameSim > bestSimilarity && nameSim >= FUZZY_SIMILARITY_MIN) {
+      const nameDistance = levenshteinDistance(candidate, normalize(dept.name));
+      if (nameDistance < bestDistance && nameDistance <= FUZZY_THRESHOLD) {
         bestMatch = dept;
-        bestSimilarity = nameSim;
+        bestDistance = nameDistance;
       }
 
       for (const alias of dept.aliases) {
-        const aliasSim = similarity(candidate, normalize(alias));
-        if (aliasSim > bestSimilarity && aliasSim >= FUZZY_SIMILARITY_MIN) {
+        const aliasDistance = levenshteinDistance(candidate, normalize(alias));
+        if (aliasDistance < bestDistance && aliasDistance <= FUZZY_THRESHOLD) {
           bestMatch = dept;
-          bestSimilarity = aliasSim;
+          bestDistance = aliasDistance;
         }
       }
     }
