@@ -70,6 +70,6 @@ module.exports = {
       )
       .setTimestamp();
 
-    await replyEmbed(interaction, { embed, pings: true });
+    await replyEmbed(interaction, { embed, pings: false });
   },
 };
