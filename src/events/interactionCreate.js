@@ -3,6 +3,14 @@
 const { EmbedBuilder, MessageFlags } = require('discord.js');
 const config = require('../config');
 const { handleLevelSearchInteraction } = require('../utils/levelSearchInteractions');
+const { assignDepartmentToMember } = require('../utils/departmentAssign');
+
+const DEPT_ASSIGN_FAIL_MESSAGES = {
+  not_configured: 'Ese departamento todavía no tiene un rol configurado. Avisale a un admin.',
+  role_missing: 'El rol de ese departamento fue eliminado del servidor. Avisale a un admin.',
+  not_manageable: 'No tengo permisos para asignarte ese rol (jerarquía).',
+  hierarchy: 'El rol de ese departamento está por encima del mío, no lo puedo asignar. Avisale a un admin.',
+};
 
 module.exports = {
   name: 'interactionCreate',
@@ -32,6 +40,18 @@ module.exports = {
       return;
     }
 
+    if (interaction.isAutocomplete()) {
+      const command = interaction.client.commands.get(interaction.commandName);
+      if (!command?.autocomplete) return;
+
+      try {
+        await command.autocomplete(interaction);
+      } catch (error) {
+        console.error(`Error en autocomplete de /${interaction.commandName}:`, error);
+      }
+      return;
+    }
+
     if (interaction.isButton() || interaction.isStringSelectMenu()) {
       const [namespace] = interaction.customId.split(':');
 
@@ -43,6 +63,31 @@ module.exports = {
           await interaction
             .reply({ content: 'Ocurrió un error al procesar la búsqueda.', flags: MessageFlags.Ephemeral })
             .catch(() => null);
+        }
+        return;
+      }
+
+      if (namespace === 'depselect' && interaction.isStringSelectMenu()) {
+        try {
+          const departmentName = interaction.values?.[0];
+          if (!departmentName) return;
+
+          const result = await assignDepartmentToMember(interaction.member, departmentName);
+
+          if (!result.ok) {
+            const text = DEPT_ASSIGN_FAIL_MESSAGES[result.reason] || 'No se pudo asignar el departamento.';
+            return interaction.reply({ content: `⚠️ ${text}`, flags: MessageFlags.Ephemeral });
+          }
+
+          if (result.alreadyHad) {
+            return interaction.reply({ content: `📍 Ya tenías el departamento **${departmentName}**.`, flags: MessageFlags.Ephemeral });
+          }
+
+          const swapText = result.previousRoleId ? ' (se removió tu departamento anterior)' : '';
+          return interaction.reply({ content: `✅ Te asigné el departamento **${departmentName}**${swapText}.`, flags: MessageFlags.Ephemeral });
+        } catch (error) {
+          console.error('Error manejando depselect:', error);
+          await interaction.reply({ content: 'Ocurrió un error al asignar el departamento.', flags: MessageFlags.Ephemeral }).catch(() => null);
         }
         return;
       }

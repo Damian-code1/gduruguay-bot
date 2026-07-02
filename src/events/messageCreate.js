@@ -3,11 +3,52 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config');
 const { getAfk, clearAfk } = require('../utils/afkStore');
+const { getDepartmentChannel, findDepartment } = require('../utils/departmentStore');
+const { assignDepartmentToMember } = require('../utils/departmentAssign');
+
+const ASSIGN_FAIL_MESSAGES = {
+  not_configured: null, // el mensaje no matcheó ningún departamento válido -> se ignora en silencio
+  role_missing: '⚠️ El rol de ese departamento fue eliminado del servidor. Avisale a un admin.',
+  not_manageable: '⚠️ No tengo permisos para asignarte ese rol (jerarquía).',
+  hierarchy: '⚠️ El rol de ese departamento está por encima del mío, no lo puedo asignar. Avisale a un admin.',
+};
+
+async function handleDepartmentChannel(message) {
+  const channelId = await getDepartmentChannel(message.guild.id);
+  if (!channelId || message.channelId !== channelId) return false;
+
+  const dept = findDepartment(message.content);
+  if (!dept) return false; // no matcheó ningún departamento, se ignora sin ensuciar el canal
+
+  const result = await assignDepartmentToMember(message.member, dept.name);
+
+  if (!result.ok) {
+    const text = ASSIGN_FAIL_MESSAGES[result.reason];
+    if (text) await message.reply({ content: text }).catch(() => null);
+    return true;
+  }
+
+  if (result.alreadyHad) {
+    await message.reply({ content: `📍 Ya tenías el departamento **${dept.name}**.` }).catch(() => null);
+    return true;
+  }
+
+  const swapText = result.previousRoleId ? ` (se removió tu departamento anterior)` : '';
+  await message.reply({ content: `✅ Te asigné el departamento **${dept.name}**${swapText}.` }).catch(() => null);
+  return true;
+}
 
 module.exports = {
   name: 'messageCreate',
   async execute(message) {
     if (message.author.bot || !message.guild) return;
+
+    try {
+      const handled = await handleDepartmentChannel(message);
+      if (handled) return; // no seguir con AFK si el mensaje era del canal de departamentos
+    } catch (err) {
+      console.error('Error en auto-detección de departamento:', err);
+    }
 
     // Si el autor estaba AFK, se le quita el estado y se avisa (mensaje normal, pinguea).
     const authorAfk = await getAfk(message.guild.id, message.author.id);
