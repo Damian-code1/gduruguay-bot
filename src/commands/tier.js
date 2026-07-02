@@ -123,12 +123,20 @@ async function getAredlLevels() {
   if (aredlCache.levels.length && now - aredlCache.fetchedAt < AREDL_CACHE_TTL_MS) {
     return aredlCache.levels;
   }
-  const resp = await fetch(AREDL_LEVELS_URL, { headers: { Accept: 'application/json' } });
-  if (!resp.ok) return aredlCache.levels;
-  const data = await resp.json();
-  const levels = Array.isArray(data) ? data : data?.data || [];
-  aredlCache = { fetchedAt: now, levels };
-  return levels;
+  try {
+    const resp = await fetch(AREDL_LEVELS_URL, { headers: { Accept: 'application/json' } });
+    if (!resp.ok) {
+      console.error(`[tier] AREDL HTTP ${resp.status}`);
+      return aredlCache.levels;
+    }
+    const data = await resp.json();
+    const levels = Array.isArray(data) ? data : data?.data || [];
+    aredlCache = { fetchedAt: now, levels };
+    return levels;
+  } catch (err) {
+    console.error('[tier] getAredlLevels excepción:', err);
+    return aredlCache.levels;
+  }
 }
 
 function matchLevels(levels, query) {
@@ -180,11 +188,26 @@ module.exports = {
 
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 }).catch(() => null);
 
-    const [aredlLevels, listWorthyEntries, nlwEntries] = await Promise.all([
-      getAredlLevels(),
-      getListWorthyEntries(),
-      getNlwEntries(),
-    ]);
+    let aredlLevels = [], listWorthyEntries = [], nlwEntries = [];
+    try {
+      [aredlLevels, listWorthyEntries, nlwEntries] = await Promise.all([
+        getAredlLevels(),
+        getListWorthyEntries(),
+        getNlwEntries(),
+      ]);
+    } catch (err) {
+      console.error('[tier] Error cargando fuentes:', err);
+    }
+
+    if (!aredlLevels.length) {
+      const container = buildContainer({
+        title: '⚠️ Servicio no disponible',
+        lines: ['No pude obtener la lista de niveles de AREDL en este momento. Probá de nuevo en unos minutos.'],
+      });
+      return interaction.editReply({ components: [container] }).catch((err) => {
+        console.error('[tier] Error en editReply:', err);
+      });
+    }
 
     const aredlResult = matchLevels(aredlLevels, query);
 
@@ -241,6 +264,8 @@ module.exports = {
       footer: 'Made by Evosen • GD Uruguay Bot',
     });
 
-    return interaction.editReply({ components: [container] });
+    return interaction.editReply({ components: [container] }).catch((err) => {
+      console.error('[tier] Error en editReply final:', err);
+    });
   },
 };

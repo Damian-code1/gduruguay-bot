@@ -69,6 +69,7 @@ function findDepartment(input) {
   const normalizedInput = normalize(input);
   if (!normalizedInput) return null;
 
+  // Match exacto contra el mensaje completo (comportamiento original).
   const exactMatch = DEPARTMENTS.find((dept) => normalize(dept.name) === normalizedInput);
   if (exactMatch) return exactMatch;
 
@@ -76,23 +77,38 @@ function findDepartment(input) {
     if (dept.aliases.some((alias) => normalize(alias) === normalizedInput)) return dept;
   }
 
-  if (normalizedInput.length < 3) return null;
+  // Match exacto de alguna PALABRA del mensaje (ej. "Yo soy de Montevideo").
+  const words = normalizedInput.split(/\s+/).filter(Boolean);
+  for (const word of words) {
+    const wordExact = DEPARTMENTS.find((dept) => normalize(dept.name) === word);
+    if (wordExact) return wordExact;
+    for (const dept of DEPARTMENTS) {
+      if (dept.aliases.some((alias) => normalize(alias) === word)) return dept;
+    }
+  }
+
+  // Fuzzy: probar el mensaje completo Y cada palabra individual por separado,
+  // así "Montevido" (typo) matchea aunque esté dentro de una frase.
+  const candidates = [normalizedInput, ...words].filter((c) => c.length >= 3);
+  if (!candidates.length) return null;
 
   let bestMatch = null;
   let bestSimilarity = 0;
 
-  for (const dept of DEPARTMENTS) {
-    const nameSim = similarity(normalizedInput, normalize(dept.name));
-    if (nameSim > bestSimilarity && nameSim >= FUZZY_SIMILARITY_MIN) {
-      bestMatch = dept;
-      bestSimilarity = nameSim;
-    }
-
-    for (const alias of dept.aliases) {
-      const aliasSim = similarity(normalizedInput, normalize(alias));
-      if (aliasSim > bestSimilarity && aliasSim >= FUZZY_SIMILARITY_MIN) {
+  for (const candidate of candidates) {
+    for (const dept of DEPARTMENTS) {
+      const nameSim = similarity(candidate, normalize(dept.name));
+      if (nameSim > bestSimilarity && nameSim >= FUZZY_SIMILARITY_MIN) {
         bestMatch = dept;
-        bestSimilarity = aliasSim;
+        bestSimilarity = nameSim;
+      }
+
+      for (const alias of dept.aliases) {
+        const aliasSim = similarity(candidate, normalize(alias));
+        if (aliasSim > bestSimilarity && aliasSim >= FUZZY_SIMILARITY_MIN) {
+          bestMatch = dept;
+          bestSimilarity = aliasSim;
+        }
       }
     }
   }
