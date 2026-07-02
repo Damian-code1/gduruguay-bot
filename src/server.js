@@ -22,13 +22,24 @@ function extractYouTubeId(url) {
   return m ? m[1] : null;
 }
 
+function fmtDate(d) {
+  try {
+    return new Intl.DateTimeFormat('es-UY', {
+      dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Montevideo',
+    }).format(d);
+  } catch {
+    return d.toISOString();
+  }
+}
+
 /**
  * Arma el Container (Components V2) con el resultado de una submission.
  * Sin color de borde, con separadores (dividers), estilo simple.
+ * Refleja los mismos campos que el embed público del canal de decisiones.
  */
 function buildDecisionContainer(data) {
   const {
-    decision, levelName, staffName, youtubeLink,
+    decision, submissionId, levelName, playerName, staffName, youtubeLink,
     rejectionReason, approvalNote, isNewLevel,
     levelPosition, aredlPosition, victorNumber, totalVictors,
   } = data;
@@ -56,8 +67,16 @@ function buildDecisionContainer(data) {
 
   container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
-  // --- Detalles principales ---
-  const detailLines = [`**Staff**\n${staffName || '—'}`];
+  // --- Jugador / Staff ---
+  const identityLines = [];
+  if (playerName) identityLines.push(`**Jugador**\n${playerName}`);
+  identityLines.push(`**Staff**\n${staffName || '—'}`);
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(identityLines.join('\n\n')));
+
+  container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+
+  // --- Detalles de la decisión ---
+  const detailLines = [];
 
   if (approved) {
     detailLines.push(`**Estado del nivel**\n${isNewLevel ? 'Nivel nuevo agregado a la lista' : 'Nivel ya existente'}`);
@@ -70,7 +89,9 @@ function buildDecisionContainer(data) {
     detailLines.push(`**Razón del rechazo**\n${rejectionReason}`);
   }
 
-  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n\n')));
+  if (detailLines.length) {
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n\n')));
+  }
 
   if (approved && approvalNote) {
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
@@ -82,9 +103,16 @@ function buildDecisionContainer(data) {
   if (youtubeLink) {
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`[Ver en YouTube](${youtubeLink})`),
+      new TextDisplayBuilder().setContent(`**Video**\n[Ver en YouTube](${youtubeLink})`),
     );
   }
+
+  // --- Footer: número de submission + fecha ---
+  container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+  const footerText = submissionId
+    ? `-# Submission #${submissionId} · ${fmtDate(new Date())}`
+    : `-# ${fmtDate(new Date())}`;
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footerText));
 
   return container;
 }
