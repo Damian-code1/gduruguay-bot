@@ -9,10 +9,14 @@
     "deploy": "node deploy-commands.js"
   },
   "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "discord.js": "^14.16.3",
     "dotenv": "16.4.5",
     "express": "^5.2.1",
-    "mysql2": "^3.11.4"
+    "mysql2": "^3.11.4",
+    "undici": "^6.19.8"
   }
 }

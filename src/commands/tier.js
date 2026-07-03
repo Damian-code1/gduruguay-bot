@@ -1,6 +1,7 @@
 'use strict';
 
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { fetch } = require('undici');
 
 const AREDL_API = 'https://api.aredl.net/v2';
 const NLW_API = 'https://nlw.oat.zone';
@@ -159,7 +160,7 @@ async function fetchListWorthyByName(name) {
       exact: false,
     };
   } catch (err) {
-    console.warn('List Worthy Sheet error', err);
+    console.error('[tier] List Worthy Sheet error:', err.message, err.stack);
     return null;
   }
 }
@@ -204,7 +205,7 @@ async function fetchNlwByName(name) {
       exact: false,
     };
   } catch (e) {
-    console.warn('NLW API error', e);
+    console.error('[tier] NLW API error:', e.message, e.stack);
     return null;
   }
 }
@@ -320,6 +321,7 @@ function makeV2Card({ title, subtitle = '', lines = [], footer = '', sections = 
   }
 
   return {
+    flags: COMPONENTS_V2_FLAG,
     components: [
       {
         type: 17,
