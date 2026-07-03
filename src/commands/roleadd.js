@@ -65,7 +65,7 @@ module.exports = {
       .setColor(config.colors.success)
       .addFields(
         { name: 'Usuario', value: `<@${targetMember.id}>`, inline: true },
-        { name: 'Rol', value: `<@&${role.id}>`, inline: true },
+        { name: 'Rol', value: role.name, inline: true },
         { name: 'Por', value: `<@${interaction.user.id}>`, inline: true },
       )
       .setTimestamp();
