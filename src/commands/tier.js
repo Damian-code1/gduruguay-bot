@@ -68,11 +68,14 @@ function parseListWorthyEntries(csvText) {
   const entries = [];
   let currentTier = null;
 
+  // Encabezados/secciones que no son niveles reales aunque tengan texto en col B
+  const SKIP_NAMES = new Set(['levle names', 'shortcuts', 'more levels']);
+
   for (const line of lines) {
     if (!line || !line.trim()) continue;
     const cells = parseCsvLine(line).map(sanitizeCell);
-    const marker = cells[0] || '';
 
+    // Header de tier: cualquier celda de la fila que termine en "Tier"
     const tierHeaderCell = cells.find(cell => /\bTier$/i.test(cell));
     if (tierHeaderCell) {
       currentTier = tierHeaderCell.replace(/\s*Tier$/i, '').trim();
@@ -80,13 +83,14 @@ function parseListWorthyEntries(csvText) {
     }
 
     if (!currentTier) continue;
-    if (marker && /^\d+$/.test(marker)) continue;
 
-    const isLevelRow = marker.includes('▶');
-    if (!isLevelRow) continue;
-
-    const levelName = cells[1] || '';
+    // Nombre del nivel: columna B (índice 1)
+    const levelName = (cells[1] || '').trim();
     if (!levelName) continue;
+    if (SKIP_NAMES.has(levelName.toLowerCase())) continue;
+
+    // Saltar filas del cuadro de "Shortcuts" (nombres de tiers como Excruciating, Menacing, etc.)
+    if (/^\d+$/.test(cells[0] || '')) continue;
 
     entries.push({
       name: levelName,
