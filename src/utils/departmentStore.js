@@ -52,13 +52,16 @@ function levenshteinDistance(str1, str2) {
   return dp[m][n];
 }
 
+// Palabras cortas comunes que NO deben disparar fuzzy match aunque estén a
+// poca distancia de un departamento chico (ej. "tt", "sj", "rn" son alias
+// legítimos, pero texto casual corto no debería matchear por accidente).
+const MIN_LEN_FOR_FUZZY = 4;
+
 /**
- * Busca un departamento por nombre EXACTO o alias EXACTO únicamente.
- * Sin fuzzy matching libre: mensajes cortos random ("xdd", "que paso",
- * "tt" sin querer decir Treinta y Tres) no deben disparar una asignación
- * de rol por accidente. El fuzzy matching se reserva solo para la
- * búsqueda del ROL en Discord (que puede tener emojis/prefijos), no para
- * interpretar qué quiso decir el usuario.
+ * Busca un departamento por nombre exacto, alias exacto, o por tipeo
+ * levemente incorrecto (fuzzy matching con distancia de Levenshtein).
+ * El fuzzy solo aplica a palabras de al menos MIN_LEN_FOR_FUZZY caracteres,
+ * para no disparar con mensajes cortos random ("xdd", "tt", "sj").
  * @param {string} input
  * @returns {{name: string, aliases: string[]} | null}
  */
@@ -66,7 +69,7 @@ function findDepartment(input) {
   const normalizedInput = normalize(input);
   if (!normalizedInput) return null;
 
-  // Match exacto contra el mensaje completo.
+  // 1. Match exacto contra el mensaje completo (nombre o alias).
   const exactMatch = DEPARTMENTS.find((dept) => normalize(dept.name) === normalizedInput);
   if (exactMatch) return exactMatch;
 
@@ -74,11 +77,7 @@ function findDepartment(input) {
     if (dept.aliases.some((alias) => normalize(alias) === normalizedInput)) return dept;
   }
 
-  // Match exacto de alguna palabra del mensaje completo (ej. "Yo soy de Montevideo"),
-  // pero SOLO si el mensaje tiene más de 1 palabra — si el usuario escribió
-  // una sola palabra corta ("tt", "mont") ya se comparó arriba como
-  // normalizedInput completo, así que llegar acá con 1 sola palabra
-  // significa que no matcheó y no debe forzarse nada más.
+  // 2. Match exacto de alguna palabra del mensaje completo (ej. "Yo soy de Montevideo").
   const words = normalizedInput.split(/\s+/).filter(Boolean);
   if (words.length > 1) {
     for (const word of words) {
@@ -90,7 +89,30 @@ function findDepartment(input) {
     }
   }
 
-  return null;
+  // 3. Fuzzy match: tolera errores de tipeo leves ("soarino" -> "soriano").
+  // Solo se evalúa contra el mensaje completo o palabras sueltas de
+  // longitud razonable, comparando contra el nombre principal de cada
+  // departamento (no contra alias cortos, para evitar falsos positivos).
+  const candidates = words.length > 1 ? [normalizedInput, ...words] : [normalizedInput];
+  let bestMatch = null;
+  let bestDistance = Infinity;
+
+  for (const candidate of candidates) {
+    if (candidate.length < MIN_LEN_FOR_FUZZY) continue;
+    for (const dept of DEPARTMENTS) {
+      const deptNameNorm = normalize(dept.name);
+      const distance = levenshteinDistance(candidate, deptNameNorm);
+      // El umbral escala levemente con la longitud del nombre para no ser
+      // ni muy estricto en nombres largos ni muy permisivo en cortos.
+      const threshold = Math.min(FUZZY_THRESHOLD + Math.floor(deptNameNorm.length / 6), 3);
+      if (distance <= threshold && distance < bestDistance) {
+        bestDistance = distance;
+        bestMatch = dept;
+      }
+    }
+  }
+
+  return bestMatch;
 }
 
 function getAllDepartments() {
