@@ -1,21 +1,18 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
-const config = require('../config');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 
 const AREDL_API = 'https://api.aredl.net/v2';
 const NLW_API = 'https://nlw.oat.zone';
-
 const LIST_WORTHY_SHEET_ID = '15YvW2rRQKlkNpdFMTaRt9CWefDkng6BSh6xRDXSw9r8';
 const LIST_WORTHY_GID = '0';
+const COMPONENTS_V2_FLAG = MessageFlags.IsComponentsV2 ?? 32768;
 
-const SHEET_CACHE_TTL_MS = 5 * 60 * 1000;
-const AREDL_CACHE_TTL_MS = 5 * 60 * 1000;
-const NLW_CACHE_TTL_MS = 5 * 60 * 1000;
-
-const listWorthyCache = { fetchedAt: 0, entries: [] };
-const nlwListCache    = { fetchedAt: 0, entries: [] };
-let aredlCache = { fetchedAt: 0, levels: [] };
+const LIST_WORTHY_CACHE_TTL_MS = 5 * 60 * 1000;
+const listWorthyCache = {
+  fetchedAt: 0,
+  entries: [],
+};
 
 function normalizeName(text) {
   return String(text || '')
@@ -30,207 +27,311 @@ function parseCsvLine(line) {
   const cells = [];
   let current = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    const next = line[i + 1];
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+
     if (char === '"') {
       if (inQuotes && next === '"') {
         current += '"';
-        i += 1;
+        index += 1;
       } else {
         inQuotes = !inQuotes;
       }
       continue;
     }
+
     if (char === ',' && !inQuotes) {
       cells.push(current.trim());
       current = '';
       continue;
     }
+
     current += char;
   }
+
   cells.push(current.trim());
   return cells;
 }
 
 function sanitizeCell(text) {
-  return String(text || '').replace(/\|/g, '').replace(/\uFE0F/g, '').trim();
+  return String(text || '')
+    .replace(/\|/g, '')
+    .replace(/\uFE0F/g, '')
+    .trim();
 }
 
 function parseListWorthyEntries(csvText) {
   const lines = String(csvText || '').split(/\r?\n/);
   const entries = [];
   let currentTier = null;
+
   for (const line of lines) {
-    if (!line?.trim()) continue;
+    if (!line || !line.trim()) continue;
     const cells = parseCsvLine(line).map(sanitizeCell);
     const marker = cells[0] || '';
-    const tierHeaderCell = cells.find((c) => /\bTier$/i.test(c));
+
+    const tierHeaderCell = cells.find(cell => /\bTier$/i.test(cell));
     if (tierHeaderCell) {
       currentTier = tierHeaderCell.replace(/\s*Tier$/i, '').trim();
       continue;
     }
-    if (!currentTier || (marker && /^\d+$/.test(marker)) || !marker.includes('▶')) continue;
+
+    if (!currentTier) continue;
+    if (marker && /^\d+$/.test(marker)) continue;
+
+    const isLevelRow = marker.includes('▶');
+    if (!isLevelRow) continue;
+
     const levelName = cells[1] || '';
     if (!levelName) continue;
-    entries.push({ name: levelName, tier: currentTier, normalized: normalizeName(levelName) });
+
+    entries.push({
+      name: levelName,
+      tier: currentTier,
+      normalized: normalizeName(levelName),
+    });
   }
+
   return entries;
-}
-
-// Usa la API oficial de Google Sheets con API key en vez del export CSV
-// público — esto evita el problema de que un sheet compartido como
-// "Comentador" (en vez de "Lector") no sea accesible sin sesión iniciada.
-// Trae el sheet completo como un array de filas (array de arrays).
-async function fetchSheetRows(sheetId, gid) {
-  const apiKey = config.googleSheetsApiKey;
-  if (!apiKey) {
-    throw new Error('GOOGLE_SHEETS_API_KEY no está configurada en las variables de entorno');
-  }
-
-  // Necesitamos el nombre real de la hoja (tab) a partir del gid, ya que
-  // la API v4 pide el nombre de la hoja en el range, no el gid numérico.
-  const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?key=${apiKey}&fields=sheets.properties`;
-  const metaResp = await fetch(metaUrl);
-  if (!metaResp.ok) throw new Error(`HTTP ${metaResp.status} (metadata)`);
-  const meta = await metaResp.json();
-  const sheetMeta = (meta.sheets || []).find(
-    (s) => String(s.properties?.sheetId) === String(gid),
-  );
-  const sheetName = sheetMeta?.properties?.title || 'Sheet1';
-
-  const valuesUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}?key=${apiKey}`;
-  const valuesResp = await fetch(valuesUrl);
-  if (!valuesResp.ok) throw new Error(`HTTP ${valuesResp.status} (values)`);
-  const data = await valuesResp.json();
-  return data.values || []; // array de arrays (filas x columnas)
-}
-
-// Convierte las filas crudas de la API v4 al mismo formato de "línea CSV"
-// que ya consumía parseListWorthyEntries, para no tener que reescribir el
-// parser — reusa parseCsvLine reconstruyendo cada fila como línea CSV.
-function rowsToCsvLines(rows) {
-  return rows
-    .map((row) =>
-      row
-        .map((cell) => {
-          const str = String(cell ?? '');
-          return str.includes(',') || str.includes('"')
-            ? `"${str.replace(/"/g, '""')}"`
-            : str;
-        })
-        .join(','),
-    )
-    .join('\n');
 }
 
 async function getListWorthyEntries() {
   const now = Date.now();
-  if (listWorthyCache.entries.length && now - listWorthyCache.fetchedAt < SHEET_CACHE_TTL_MS) {
+  if (listWorthyCache.entries.length && now - listWorthyCache.fetchedAt < LIST_WORTHY_CACHE_TTL_MS) {
     return listWorthyCache.entries;
   }
-  try {
-    const rows = await fetchSheetRows(LIST_WORTHY_SHEET_ID, LIST_WORTHY_GID);
-    const csvText = rowsToCsvLines(rows);
-    const entries = parseListWorthyEntries(csvText);
-    listWorthyCache.fetchedAt = now;
-    listWorthyCache.entries = entries;
-  } catch (err) {
-    console.warn('List Worthy Sheet error:', err.message);
+
+  const url = `https://docs.google.com/spreadsheets/d/${LIST_WORTHY_SHEET_ID}/export?format=csv&gid=${LIST_WORTHY_GID}`;
+  const resp = await fetch(url, {
+    headers: {
+      Accept: 'text/csv,*/*',
+      'User-Agent': 'Mozilla/5.0',
+    },
+  });
+
+  if (!resp.ok) {
+    throw new Error(`No se pudo leer List Worthy Sheet (${resp.status})`);
   }
-  return listWorthyCache.entries;
+
+  const csvText = await resp.text();
+  const entries = parseListWorthyEntries(csvText);
+
+  listWorthyCache.fetchedAt = now;
+  listWorthyCache.entries = entries;
+  return entries;
 }
 
-// NLW se consulta vía la API pública nlw.oat.zone (no un Google Sheet) —
-// misma fuente que usaba el comando viejo, que sí funcionaba.
-async function getNlwList() {
-  const now = Date.now();
-  if (nlwListCache.entries.length && now - nlwListCache.fetchedAt < NLW_CACHE_TTL_MS) {
-    return nlwListCache.entries;
+async function fetchListWorthyByName(name) {
+  try {
+    const entries = await getListWorthyEntries();
+    if (!entries.length) return null;
+
+    const q = normalizeName(name);
+    const exact = entries.find(item => item.normalized === q);
+
+    if (exact) {
+      return {
+        match: exact,
+        matches: [exact],
+        exact: true,
+      };
+    }
+
+    const partial = entries.filter(
+      item => item.normalized.includes(q)
+    );
+
+    if (!partial.length) return null;
+
+    if (partial.length > 1) {
+      return {
+        match: null,
+        matches: partial.slice(0, 10),
+        exact: false,
+      };
+    }
+
+    return {
+      match: partial[0],
+      matches: partial,
+      exact: false,
+    };
+  } catch (err) {
+    console.warn('List Worthy Sheet error', err);
+    return null;
   }
+}
+
+async function fetchNlwByName(name) {
   try {
     const resp = await fetch(`${NLW_API}/list?type=all`, { headers: { Accept: 'application/json' } });
-    if (!resp.ok) {
-      console.warn(`NLW API error: HTTP ${resp.status}`);
-      return nlwListCache.entries;
-    }
+    if (!resp.ok) return null;
     const list = await resp.json();
-    if (Array.isArray(list)) {
-      nlwListCache.fetchedAt = now;
-      nlwListCache.entries = list;
+    if (!Array.isArray(list)) return null;
+
+    const q = String(name).trim().toLowerCase();
+    const exact = list.find(
+      l => String(l.name || '').trim().toLowerCase() === q
+    );
+
+    if (exact) {
+      return {
+        match: exact,
+        matches: [exact],
+        exact: true,
+      };
     }
-  } catch (err) {
-    console.warn('NLW API error:', err.message);
-  }
-  return nlwListCache.entries;
-}
 
-function matchNlwByName(list, query) {
-  const q = normalizeName(query);
-  const exact = list.find((l) => normalizeName(l.name || '') === q);
-  if (exact) return { match: exact, matches: [exact], exact: true };
-  const partial = list.filter((l) => normalizeName(l.name || '').includes(q));
-  if (!partial.length) return { match: null, matches: [], exact: false };
-  if (partial.length > 1) return { match: null, matches: partial.slice(0, 10), exact: false };
-  return { match: partial[0], matches: partial, exact: false };
-}
+    const partial = list.filter(
+      l => String(l.name || '').toLowerCase().includes(q)
+    );
 
-async function getAredlLevels() {
-  const now = Date.now();
-  if (aredlCache.levels.length && now - aredlCache.fetchedAt < AREDL_CACHE_TTL_MS) {
-    return aredlCache.levels;
-  }
-  try {
-    const resp = await fetch(`${AREDL_API}/api/aredl/levels`, { headers: { Accept: 'application/json' } });
-    if (!resp.ok) {
-      console.error(`[tier] AREDL HTTP ${resp.status}`);
-      return aredlCache.levels;
+    if (!partial.length) return null;
+
+    if (partial.length > 1) {
+      return {
+        match: null,
+        matches: partial.slice(0, 10),
+        exact: false,
+      };
     }
-    const data = await resp.json();
-    const levels = Array.isArray(data) ? data : data?.data || [];
-    aredlCache = { fetchedAt: now, levels };
-    return levels;
-  } catch (err) {
-    console.error('[tier] getAredlLevels excepción:', err);
-    return aredlCache.levels;
+
+    return {
+      match: partial[0],
+      matches: partial,
+      exact: false,
+    };
+  } catch (e) {
+    console.warn('NLW API error', e);
+    return null;
   }
 }
 
-function matchLevels(levels, query) {
-  const q = normalizeName(query);
-  const exact = levels.find((l) => normalizeName(l.name) === q);
-  if (exact) return { match: exact, matches: [exact], exact: true };
-  const partial = levels.filter((l) => normalizeName(l.name).includes(q));
-  if (!partial.length) return { match: null, matches: [], exact: false };
-  if (partial.length > 1) return { match: null, matches: partial.slice(0, 10), exact: false };
-  return { match: partial[0], matches: partial, exact: false };
-}
+async function resolveLevelIdByName(levelName) {
+  const response = await fetch(`${AREDL_API}/api/aredl/levels`, {
+    headers: { Accept: 'application/json' },
+  });
 
-function matchSheetEntry(entries, query) {
-  const q = normalizeName(query);
-  const exact = entries.find((e) => e.normalized === q);
-  if (exact) return { match: exact, exact: true };
-  const partial = entries.filter((e) => e.normalized.includes(q));
-  if (partial.length === 1) return { match: partial[0], exact: false };
-  return { match: null, exact: false };
-}
-
-function buildContainer({ title, levelName, lines, footer }) {
-  const container = new ContainerBuilder();
-  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${title}`));
-
-  if (levelName) {
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Nivel:** ${levelName}`));
-    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+  if (!response.ok) {
+    throw new Error(`No se pudo consultar niveles de AREDL (${response.status})`);
   }
 
-  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+  const data = await response.json();
+  const levels = Array.isArray(data) ? data : data.data || [];
+  const normalizedQuery = levelName.trim().toLowerCase();
+
+  const exact = levels.find(
+    level => String(level.name || '').trim().toLowerCase() === normalizedQuery
+  );
+
+  if (exact) {
+    return {
+      levelId: exact.id,
+      levelName: exact.name,
+      matches: [exact],
+      exact: true,
+    };
+  }
+
+  const partialMatches = levels.filter(level =>
+    String(level.name || '').toLowerCase().includes(normalizedQuery)
+  );
+
+  if (!partialMatches.length) {
+    return {
+      levelId: null,
+      levelName: null,
+      matches: [],
+      exact: false,
+    };
+  }
+
+  // Si hay más de una coincidencia, NO elegir automáticamente
+  if (partialMatches.length > 1) {
+    return {
+      levelId: null,
+      levelName: null,
+      matches: partialMatches.slice(0, 10),
+      exact: false,
+    };
+  }
+
+  // Solo una coincidencia parcial → usarla
+  return {
+    levelId: partialMatches[0].id,
+    levelName: partialMatches[0].name,
+    matches: partialMatches,
+    exact: false,
+  };
+}
+
+function getTierFromLevel(level) {
+  if (!level) return null;
+
+  const tryFields = [
+    'tier',
+    'difficulty_tier',
+    'difficultyTier',
+    'difficulty',
+    'difficulty_name',
+    'difficulty_tier_name',
+    'difficultyRating',
+  ];
+
+  for (const f of tryFields) {
+    if (Object.prototype.hasOwnProperty.call(level, f) && level[f] != null) {
+      return level[f];
+    }
+  }
+
+  if (level.difficulty && typeof level.difficulty === 'object') {
+    if (level.difficulty.tier) return level.difficulty.tier;
+    if (level.difficulty.name) return level.difficulty.name;
+  }
+
+  return null;
+}
+
+function makeV2Card({ title, subtitle = '', lines = [], footer = '', sections = [] }) {
+  const components = [{ type: 10, content: title.startsWith('#') ? title : `# ${title}` }];
+
+  if (subtitle) {
+    components.push({ type: 14 });
+    components.push({ type: 10, content: subtitle });
+  }
+
+  for (const section of sections) {
+    const sectionLines = Array.isArray(section?.lines) ? section.lines.filter(Boolean) : [];
+    if (!sectionLines.length) continue;
+    if (components.length) components.push({ type: 14 });
+    components.push({ type: 10, content: `### ${section.title}\n${sectionLines.join('\n')}` });
+  }
+
+  if (lines.length) {
+    components.push({ type: 14 });
+    components.push({ type: 10, content: lines.filter(Boolean).join('\n') });
+  }
 
   if (footer) {
-    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`> ${footer}`));
+    components.push({ type: 14 });
+    components.push({ type: 10, content: `> ${footer}` });
   }
-  return container;
+
+  return {
+    components: [
+      {
+        type: 17,
+        accent_color: null,
+        components,
+      },
+    ],
+  };
+}
+
+function formatMatches(matches, mapper) {
+  return (matches || []).slice(0, 5).map(mapper);
 }
 
 module.exports = {
@@ -245,70 +346,158 @@ module.exports = {
 
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 }).catch(() => null);
 
-    let aredlLevels = [], listWorthyEntries = [], nlwList = [];
-    try {
-      [aredlLevels, listWorthyEntries, nlwList] = await Promise.all([
-        getAredlLevels(),
-        getListWorthyEntries(),
-        getNlwList(),
-      ]);
-    } catch (err) {
-      console.error('[tier] Error cargando fuentes:', err);
-    }
-
-    if (!aredlLevels.length) {
-      const container = buildContainer({
-        title: '⚠️ Servicio no disponible',
-        lines: ['No pude obtener la lista de niveles de AREDL en este momento. Probá de nuevo en unos minutos.'],
-      });
-      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 }).catch((err) => {
+    const reply = (payload) =>
+      interaction.editReply({ ...payload, flags: MessageFlags.IsComponentsV2 }).catch((err) => {
         console.error('[tier] Error en editReply:', err);
       });
+
+    const nlwResult = await fetchNlwByName(query);
+    const nlwTier = nlwResult?.match?.tier ? String(nlwResult.match.tier).trim() : null;
+    const listWorthyResult = await fetchListWorthyByName(query);
+
+    // Si NLW tiene tier, se prioriza.
+    if (nlwResult?.match && nlwTier && nlwResult.exact) {
+      return reply(makeV2Card({
+        title: '🎯 Tier del nivel',
+        subtitle: `**Nivel:** ${nlwResult.match.name}`,
+        sections: [
+          {
+            title: 'Resultado',
+            lines: [
+              `NLW Tier: **${nlwTier}**`,
+              listWorthyResult?.match ? `List Worthy Tier: **${listWorthyResult.match.tier}**` : 'List Worthy Tier: No detectado',
+              'Fuente principal: **NLW API**',
+            ],
+          },
+          ...(nlwResult.matches && nlwResult.matches.length > 1
+            ? [{ title: 'Posibles coincidencias', lines: formatMatches(nlwResult.matches, item => item.name) }]
+            : []),
+        ],
+        footer: 'Made by Evosen • GD Uruguay Bot',
+      }));
     }
 
-    const aredlResult = matchLevels(aredlLevels, query);
+    // Si NLW no tiene tier (o no existe), usar List Worthy sheet.
+    if (listWorthyResult?.match && listWorthyResult.exact) {
+      const lw = listWorthyResult.match;
+      return reply(makeV2Card({
+        title: '🎯 Tier del nivel',
+        subtitle: `**Nivel:** ${lw.name}`,
+        sections: [
+          {
+            title: 'Resultado',
+            lines: [
+              `List Worthy Tier: **${lw.tier}**`,
+              nlwResult?.match ? `NLW Tier: **${nlwTier || 'No disponible'}**` : 'NLW Tier: No detectado',
+              'Fuente principal: **List Worthy Sheet**',
+            ],
+          },
+          ...(listWorthyResult.matches && listWorthyResult.matches.length > 1
+            ? [{ title: 'Posibles coincidencias', lines: formatMatches(listWorthyResult.matches, item => `${item.name} — ${item.tier}`) }]
+            : []),
+        ],
+        footer: 'Made by Evosen • GD Uruguay Bot',
+      }));
+    }
 
-    if (!aredlResult.match) {
-      if (aredlResult.matches.length) {
-        const container = buildContainer({
+    let resolved;
+    try {
+      resolved = await resolveLevelIdByName(query);
+    } catch (err) {
+      console.error('Error consultando AREDL:', err);
+      return interaction.editReply({ content: '❌ Error al consultar la API de AREDL. Intenta de nuevo más tarde.' }).catch(() => null);
+    }
+
+    if (!resolved.levelId) {
+      if (resolved.matches?.length) {
+        return reply(makeV2Card({
           title: '🔍 Varias coincidencias',
-          lines: [`Encontré varios niveles parecidos a **"${query}"**:`, aredlResult.matches.map((l) => l.name).join('\n')],
-        });
-        return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
+          subtitle: `Encontré varios niveles parecidos a '${query}'`,
+          sections: [{
+            title: 'Posibles coincidencias',
+            lines: resolved.matches.map(level => level.name),
+          }],
+          footer: 'Escribe el nombre completo del nivel.',
+        }));
       }
-      const container = buildContainer({
+
+      return reply(makeV2Card({
         title: '❌ No encontrado',
-        lines: [`No encontré ningún nivel con el nombre **"${query}"**.`],
-      });
-      return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 });
+        subtitle: `No encontré ningún nivel con el nombre '${query}'.`,
+      }));
     }
 
-    const level = aredlResult.match;
+    const levelObj = resolved.matches && resolved.matches[0] ? resolved.matches[0] : null;
 
-    let nlwTier = null;
-    const nlwMatch = matchNlwByName(nlwList, level.name);
-    if (nlwMatch.match?.tier) nlwTier = String(nlwMatch.match.tier).trim();
-    if (!nlwTier && level.nlw_tier) nlwTier = level.nlw_tier; // fallback: campo propio de la API AREDL
+    // Intentar obtener más detalles consultando el endpoint por UUID
+    let detailed = levelObj;
+    try {
+      const resp = await fetch(`${AREDL_API}/api/aredl/levels/${resolved.levelId}`, { headers: { Accept: 'application/json' } });
+      if (resp.ok) {
+        const jd = await resp.json();
+        detailed = Array.isArray(jd) ? jd[0] : jd.data || jd || detailed;
+      }
+    } catch (e) {
+      // ignora; usaremos lo que ya tengamos
+      console.warn('No se pudo obtener detalle por UUID:', e);
+    }
 
-    let listWorthyTier = null;
-    const lwMatch = matchSheetEntry(listWorthyEntries, level.name);
-    if (lwMatch.match) listWorthyTier = lwMatch.match.tier;
+    const tier = getTierFromLevel(detailed);
+    // Detectar NLW Tier en tags/description (ej. 'Relentless')
+    let nlwTierFromAredl = null;
+    try {
+      const tagsText = (() => {
+        if (!detailed) return '';
+        if (Array.isArray(detailed.tags)) return detailed.tags.join(' ').toLowerCase();
+        if (typeof detailed.tags === 'string') return detailed.tags.toLowerCase();
+        return '';
+      })();
 
-    const lines = [
-      `**Posición AREDL:** #${level.position}`,
-      `**NLW Tier:** ${nlwTier ? `**${nlwTier}**` : 'No detectado'}`,
-      `**List Worthy Tier:** ${listWorthyTier ? `**${listWorthyTier}**` : 'No detectado'}`,
-    ];
+      const descText = (detailed.description || '').toLowerCase();
 
-    const container = buildContainer({
-      title: '🎯 Tier del nivel',
-      levelName: level.name,
-      lines,
+      // buscar nombre directo
+      if (tagsText.includes('relentless') || descText.includes('relentless')) nlwTierFromAredl = 'Relentless';
+
+      // buscar patrón NLW: <tier>
+      if (!nlwTierFromAredl) {
+        const combined = `${tagsText} ${descText}`;
+        const m = combined.match(/nlw[:\-\s_]*([a-zA-Z]+)/i);
+        if (m && m[1]) nlwTierFromAredl = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const resultLines = [];
+    if (tier != null) {
+      resultLines.push(`Tier/dificultad: **${String(tier)}**`);
+      resultLines.push('UUID: `' + resolved.levelId + '`');
+    } else {
+      const available = detailed ? Object.keys(detailed).slice(0, 10) : [];
+      resultLines.push('No pude determinar el tier de forma automática.');
+      resultLines.push(available.length ? `Campos disponibles: ${available.join(', ')}` : 'No hay campos disponibles en la respuesta.');
+    }
+
+    return reply(makeV2Card({
+      title: '🎯 AREDL - Tier del nivel',
+      subtitle: `**Nivel:** ${resolved.levelName || query}`,
+      sections: [
+        {
+          title: 'Resultado',
+          lines: resultLines,
+        },
+        {
+          title: 'Fuentes',
+          lines: [
+            `NLW Tier: **${nlwTier || nlwTierFromAredl || 'No detectado'}**`,
+            `List Worthy Tier: **${listWorthyResult?.match?.tier || 'No detectado'}**`,
+          ],
+        },
+        ...(resolved.matches && resolved.matches.length > 1
+          ? [{ title: 'Posibles coincidencias', lines: formatMatches(resolved.matches, m => m.name) }]
+          : []),
+      ],
       footer: 'Made by Evosen • GD Uruguay Bot',
-    });
-
-    return interaction.editReply({ components: [container], flags: MessageFlags.IsComponentsV2 }).catch((err) => {
-      console.error('[tier] Error en editReply final:', err);
-    });
+    }));
   },
 };
