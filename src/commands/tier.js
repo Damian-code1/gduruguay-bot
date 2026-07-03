@@ -1,21 +1,20 @@
 'use strict';
 
-const { SlashCommandBuilder, EmbedBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
 const config = require('../config');
 
-const AREDL_LEVELS_URL = 'https://api.aredl.net/v2/api/aredl/levels';
+const AREDL_API = 'https://api.aredl.net/v2';
+const NLW_API = 'https://nlw.oat.zone';
 
 const LIST_WORTHY_SHEET_ID = '15YvW2rRQKlkNpdFMTaRt9CWefDkng6BSh6xRDXSw9r8';
 const LIST_WORTHY_GID = '0';
 
-const NLW_SHEET_ID = '1YxUE2kkvhT2E6AjnkvTf-o8iu_shSLbuFkEFcZOvieA';
-const NLW_GID = '0';
-
 const SHEET_CACHE_TTL_MS = 5 * 60 * 1000;
 const AREDL_CACHE_TTL_MS = 5 * 60 * 1000;
+const NLW_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const listWorthyCache = { fetchedAt: 0, entries: [] };
-const nlwCache        = { fetchedAt: 0, entries: [] };
+const nlwListCache    = { fetchedAt: 0, entries: [] };
 let aredlCache = { fetchedAt: 0, levels: [] };
 
 function normalizeName(text) {
@@ -142,21 +141,38 @@ async function getListWorthyEntries() {
   return listWorthyCache.entries;
 }
 
-async function getNlwEntries() {
+// NLW se consulta vía la API pública nlw.oat.zone (no un Google Sheet) —
+// misma fuente que usaba el comando viejo, que sí funcionaba.
+async function getNlwList() {
   const now = Date.now();
-  if (nlwCache.entries.length && now - nlwCache.fetchedAt < SHEET_CACHE_TTL_MS) {
-    return nlwCache.entries;
+  if (nlwListCache.entries.length && now - nlwListCache.fetchedAt < NLW_CACHE_TTL_MS) {
+    return nlwListCache.entries;
   }
   try {
-    const rows = await fetchSheetRows(NLW_SHEET_ID, NLW_GID);
-    const csvText = rowsToCsvLines(rows);
-    const entries = parseListWorthyEntries(csvText);
-    nlwCache.fetchedAt = now;
-    nlwCache.entries = entries;
+    const resp = await fetch(`${NLW_API}/list?type=all`, { headers: { Accept: 'application/json' } });
+    if (!resp.ok) {
+      console.warn(`NLW API error: HTTP ${resp.status}`);
+      return nlwListCache.entries;
+    }
+    const list = await resp.json();
+    if (Array.isArray(list)) {
+      nlwListCache.fetchedAt = now;
+      nlwListCache.entries = list;
+    }
   } catch (err) {
-    console.warn('NLW Sheet error:', err.message);
+    console.warn('NLW API error:', err.message);
   }
-  return nlwCache.entries;
+  return nlwListCache.entries;
+}
+
+function matchNlwByName(list, query) {
+  const q = normalizeName(query);
+  const exact = list.find((l) => normalizeName(l.name || '') === q);
+  if (exact) return { match: exact, matches: [exact], exact: true };
+  const partial = list.filter((l) => normalizeName(l.name || '').includes(q));
+  if (!partial.length) return { match: null, matches: [], exact: false };
+  if (partial.length > 1) return { match: null, matches: partial.slice(0, 10), exact: false };
+  return { match: partial[0], matches: partial, exact: false };
 }
 
 async function getAredlLevels() {
@@ -165,7 +181,7 @@ async function getAredlLevels() {
     return aredlCache.levels;
   }
   try {
-    const resp = await fetch(AREDL_LEVELS_URL, { headers: { Accept: 'application/json' } });
+    const resp = await fetch(`${AREDL_API}/api/aredl/levels`, { headers: { Accept: 'application/json' } });
     if (!resp.ok) {
       console.error(`[tier] AREDL HTTP ${resp.status}`);
       return aredlCache.levels;
@@ -229,12 +245,12 @@ module.exports = {
 
     await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 }).catch(() => null);
 
-    let aredlLevels = [], listWorthyEntries = [], nlwEntries = [];
+    let aredlLevels = [], listWorthyEntries = [], nlwList = [];
     try {
-      [aredlLevels, listWorthyEntries, nlwEntries] = await Promise.all([
+      [aredlLevels, listWorthyEntries, nlwList] = await Promise.all([
         getAredlLevels(),
         getListWorthyEntries(),
-        getNlwEntries(),
+        getNlwList(),
       ]);
     } catch (err) {
       console.error('[tier] Error cargando fuentes:', err);
@@ -270,9 +286,9 @@ module.exports = {
     const level = aredlResult.match;
 
     let nlwTier = null;
-    const nlwMatch = matchSheetEntry(nlwEntries, level.name);
-    if (nlwMatch.match) nlwTier = nlwMatch.match.tier;
-    if (!nlwTier && level.nlw_tier) nlwTier = level.nlw_tier; 
+    const nlwMatch = matchNlwByName(nlwList, level.name);
+    if (nlwMatch.match?.tier) nlwTier = String(nlwMatch.match.tier).trim();
+    if (!nlwTier && level.nlw_tier) nlwTier = level.nlw_tier; // fallback: campo propio de la API AREDL
 
     let listWorthyTier = null;
     const lwMatch = matchSheetEntry(listWorthyEntries, level.name);
