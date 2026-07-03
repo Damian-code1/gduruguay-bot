@@ -26,8 +26,8 @@ const FORCE_ADMIN_VISIBILITY = new Set([
 // Categorías con orden fijo, ícono y ejemplos de uso por comando/subcomando.
 const CATEGORIES = [
   {
-    key: 'economia',
-    label: '💠 Economía — Aura',
+    key: 'aura',
+    label: '💠 Aura',
     commands: {
       aura: [
         { sub: 'claim',    usage: '/aura claim' },
