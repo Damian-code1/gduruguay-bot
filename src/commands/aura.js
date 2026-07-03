@@ -21,20 +21,24 @@ const {
 const AURA_COOLDOWN_MS = 20 * 60 * 60 * 1000; // 20h
 const TOP_LIMIT = 10;
 
-// ── Rangos rebalanceados: nada de números astronómicos.
-// Rango total realista: -500 a +1500 por claim. Cap de vida: -5000 a +50000.
+// Curva de probabilidad descendente en ambos sentidos: cuanto más lejos de
+// cero (positivo o negativo), menor la chance de conseguirlo. Escala
+// llevada hasta el millón, manteniendo el mismo tipo de balance de antes
+// pero con rangos mucho más grandes.
 const AURA_BUCKETS = [
-  { weight: 8,  label: 'Aura drenada',   roll: () => -randomInt(50, 500) },
-  { weight: 22, label: 'Aura baja',      roll: () => randomInt(10, 80) },
-  { weight: 30, label: 'Aura normal',    roll: () => randomInt(80, 250) },
-  { weight: 22, label: 'Aura buena',     roll: () => randomInt(250, 500) },
-  { weight: 12, label: 'Aura alta',      roll: () => randomInt(500, 900) },
-  { weight: 5,  label: 'Aura épica',     roll: () => randomInt(900, 1300) },
-  { weight: 1,  label: 'Aura legendaria',roll: () => randomInt(1300, 1500) },
+  { weight: 1,  label: 'Aura Monster',      roll: () => -randomInt(300000, 1000000) },
+  { weight: 3,  label: 'Aura catastrófica',  roll: () => -randomInt(50000, 300000) },
+  { weight: 6,  label: 'Aura drenada',       roll: () => -randomInt(1000, 50000) },
+  { weight: 34, label: 'Aura baja',          roll: () => randomInt(500, 3000) },
+  { weight: 28, label: 'Aura normal',        roll: () => randomInt(3000, 12000) },
+  { weight: 18, label: 'Aura buena',         roll: () => randomInt(12000, 40000) },
+  { weight: 6,  label: 'Aura alta',          roll: () => randomInt(40000, 120000) },
+  { weight: 3,  label: 'Aura épica',         roll: () => randomInt(120000, 400000) },
+  { weight: 1,  label: 'Aura legendaria',    roll: () => randomInt(400000, 1000000) },
 ];
 
-const AURA_CAP_MIN = -5000;
-const AURA_CAP_MAX = 50000;
+const AURA_CAP_MIN = -1500000;
+const AURA_CAP_MAX = 1500000;
 
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
