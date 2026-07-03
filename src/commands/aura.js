@@ -119,6 +119,19 @@ module.exports = {
             .setRequired(true),
         ),
     )
+    .addSubcommand((sub) =>
+      sub
+        .setName('remove')
+        .setDescription('[Admin] Resta una cantidad de aura a un usuario.')
+        .addUserOption((opt) => opt.setName('usuario').setDescription('Usuario a modificar').setRequired(true))
+        .addIntegerOption((opt) =>
+          opt
+            .setName('cantidad')
+            .setDescription('Cantidad a restar (siempre positiva)')
+            .setRequired(true)
+            .setMinValue(1),
+        ),
+    )
     .addSubcommandGroup((group) =>
       group
         .setName('cd')
@@ -138,7 +151,7 @@ module.exports = {
     const guildId = interaction.guildId;
 
     // ── Subcomandos de administrador ──
-    if (sub === 'reset' || sub === 'ban' || sub === 'give' || (group === 'cd' && sub === 'reset')) {
+    if (sub === 'reset' || sub === 'ban' || sub === 'give' || sub === 'remove' || (group === 'cd' && sub === 'reset')) {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return replyError(interaction, 'Este comando requiere permisos de **Administrador**.');
       }
@@ -176,6 +189,24 @@ module.exports = {
           .setDescription(
             [
               `${cantidad >= 0 ? 'Se sumaron' : 'Se restaron'} **${formatAura(Math.abs(cantidad))} aura** a <@${target.id}>.`,
+              `Aura total ahora: **${formatAura(nextValue)}**`,
+            ].join('\n'),
+          );
+        return replyEmbed(interaction, { embed, pings: false });
+      }
+
+      if (sub === 'remove') {
+        const cantidad = interaction.options.getInteger('cantidad', true);
+        const before = await getAura(guildId, target.id);
+        const nextValue = clampAura(before.aura - cantidad);
+        await setAura(guildId, target.id, nextValue);
+
+        const embed = new EmbedBuilder()
+          .setTitle('📉 Aura descontada')
+          .setColor(config.colors.danger)
+          .setDescription(
+            [
+              `Se restaron **${formatAura(cantidad)} aura** a <@${target.id}>.`,
               `Aura total ahora: **${formatAura(nextValue)}**`,
             ].join('\n'),
           );
