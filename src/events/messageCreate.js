@@ -5,6 +5,7 @@ const config = require('../config');
 const { getAfk, clearAfk } = require('../utils/afkStore');
 const { getDepartmentChannel, findDepartment } = require('../utils/departmentStore');
 const { assignDepartmentToMember } = require('../utils/departmentAssign');
+const { incrementMessageCount } = require('../utils/messageCountStore');
 
 const DEPT_COOLDOWN_MS = 3000;
 const deptCooldowns = new Map();
@@ -68,6 +69,8 @@ module.exports = {
   name: 'messageCreate',
   async execute(message) {
     if (message.author.bot || !message.guild) return;
+
+    incrementMessageCount(message.guild.id, message.author.id).catch(() => null);
 
     try {
       const handled = await handleDepartmentChannel(message);

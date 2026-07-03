@@ -15,6 +15,21 @@ function formatRoles(roleIds) {
   return roleIds.map((id) => `<@&${id}>`).join(', ');
 }
 
+function formatRolesHierarchical(guild, roleIds) {
+  const roles = roleIds
+    .map((id) => guild.roles.cache.get(id))
+    .filter(Boolean)
+    .sort((a, b) => b.position - a.position);
+
+  const missing = roleIds.filter((id) => !guild.roles.cache.has(id));
+
+  const lines = roles.map((role) => `<@&${role.id}>`);
+  if (missing.length) {
+    lines.push(...missing.map((id) => `~~<@&${id}>~~ *(rol eliminado)*`));
+  }
+  return lines.join('\n');
+}
+
 module.exports = {
   visibility: 'staff', // 'public' | 'staff' | 'admin' (usado por /cmds)
   data: new SlashCommandBuilder()
@@ -58,9 +73,9 @@ module.exports = {
       const roles = await getStaffRoles(guildId);
       const embed = new EmbedBuilder()
         .setTitle('🛡️ Roles de staff configurados')
-        .setDescription(roles.length ? formatRoles(roles) : 'No hay roles de staff configurados (solo Administrator tiene acceso).')
+        .setDescription(roles.length ? formatRolesHierarchical(interaction.guild, roles) : 'No hay roles de staff configurados (solo Administrator tiene acceso).')
         .setColor(config.colors.primary);
-      return replyEmbed(interaction, { embed });
+      return replyEmbed(interaction, { embed, pings: false });
     }
 
     if (sub === 'clear') {

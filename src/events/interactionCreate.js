@@ -5,6 +5,8 @@ const config = require('../config');
 const { handleLevelSearchInteraction } = require('../utils/levelSearchInteractions');
 const { assignDepartmentToMember } = require('../utils/departmentAssign');
 const { buildDmLogPayload } = require('../utils/dmLogUi');
+const { getGiveaway, hasEntry, addEntry, getEntryCount, checkGiveawayRequirements, buildGiveawayEmbed, buildGiveawayButton } = require('../utils/giveawayRuntime');
+const { handlePollVote } = require('../utils/pollRuntime');
 
 const DEPT_ASSIGN_FAIL_MESSAGES = {
   not_configured: 'Ese departamento todavía no tiene un rol configurado. Avisale a un admin.',
@@ -122,6 +124,54 @@ module.exports = {
           await interaction
             .reply({ content: 'Ocurrió un error al cambiar de categoría.', flags: MessageFlags.Ephemeral })
             .catch(() => null);
+        }
+        return;
+      }
+
+      if (namespace === 'giveaway' && interaction.isButton()) {
+        try {
+          const [, action, giveawayIdStr] = interaction.customId.split(':');
+          const giveawayId = Number(giveawayIdStr);
+          const giveaway = await getGiveaway(giveawayId);
+
+          if (!giveaway || giveaway.ended) {
+            return interaction.reply({ content: '⚠️ Este giveaway ya finalizó.', flags: MessageFlags.Ephemeral });
+          }
+
+          const already = await hasEntry(giveawayId, interaction.user.id);
+          if (already) {
+            return interaction.reply({ content: '✅ Ya estás participando en este giveaway.', flags: MessageFlags.Ephemeral });
+          }
+
+          const failures = await checkGiveawayRequirements(interaction.guild, interaction.user.id, giveaway);
+          if (failures.length) {
+            return interaction.reply({
+              content: `❌ No cumplís los requisitos para participar:\n${failures.map((f) => `• ${f}`).join('\n')}`,
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+
+          await addEntry(giveawayId, interaction.user.id);
+          const entryCount = await getEntryCount(giveawayId);
+
+          const embed = buildGiveawayEmbed(giveaway, entryCount);
+          const row = buildGiveawayButton(giveawayId);
+          await interaction.message.edit({ embeds: [embed], components: [row] }).catch(() => null);
+
+          return interaction.reply({ content: '🎉 ¡Ya estás participando en el giveaway!', flags: MessageFlags.Ephemeral });
+        } catch (error) {
+          console.error('Error manejando botón de giveaway:', error);
+          await interaction.reply({ content: 'Ocurrió un error al participar en el giveaway.', flags: MessageFlags.Ephemeral }).catch(() => null);
+        }
+        return;
+      }
+
+      if (namespace === 'poll' && interaction.isButton()) {
+        try {
+          await handlePollVote(interaction);
+        } catch (error) {
+          console.error('Error manejando voto de poll:', error);
+          await interaction.reply({ content: 'Ocurrió un error al votar.', flags: MessageFlags.Ephemeral }).catch(() => null);
         }
         return;
       }
