@@ -160,7 +160,7 @@ async function fetchListWorthyByName(name) {
       exact: false,
     };
   } catch (err) {
-    console.error('[tier] List Worthy Sheet error:', err.message, err.stack);
+    console.warn('List Worthy Sheet error', err);
     return null;
   }
 }
@@ -205,7 +205,7 @@ async function fetchNlwByName(name) {
       exact: false,
     };
   } catch (e) {
-    console.error('[tier] NLW API error:', e.message, e.stack);
+    console.warn('NLW API error', e);
     return null;
   }
 }
@@ -249,7 +249,6 @@ async function resolveLevelIdByName(levelName) {
     };
   }
 
-  // Si hay más de una coincidencia, NO elegir automáticamente
   if (partialMatches.length > 1) {
     return {
       levelId: null,
@@ -259,7 +258,6 @@ async function resolveLevelIdByName(levelName) {
     };
   }
 
-  // Solo una coincidencia parcial → usarla
   return {
     levelId: partialMatches[0].id,
     levelName: partialMatches[0].name,
@@ -357,7 +355,6 @@ module.exports = {
     const nlwTier = nlwResult?.match?.tier ? String(nlwResult.match.tier).trim() : null;
     const listWorthyResult = await fetchListWorthyByName(query);
 
-    // Si NLW tiene tier, se prioriza.
     if (nlwResult?.match && nlwTier && nlwResult.exact) {
       return reply(makeV2Card({
         title: '🎯 Tier del nivel',
@@ -379,7 +376,6 @@ module.exports = {
       }));
     }
 
-    // Si NLW no tiene tier (o no existe), usar List Worthy sheet.
     if (listWorthyResult?.match && listWorthyResult.exact) {
       const lw = listWorthyResult.match;
       return reply(makeV2Card({
@@ -431,7 +427,6 @@ module.exports = {
 
     const levelObj = resolved.matches && resolved.matches[0] ? resolved.matches[0] : null;
 
-    // Intentar obtener más detalles consultando el endpoint por UUID
     let detailed = levelObj;
     try {
       const resp = await fetch(`${AREDL_API}/api/aredl/levels/${resolved.levelId}`, { headers: { Accept: 'application/json' } });
@@ -440,12 +435,10 @@ module.exports = {
         detailed = Array.isArray(jd) ? jd[0] : jd.data || jd || detailed;
       }
     } catch (e) {
-      // ignora; usaremos lo que ya tengamos
       console.warn('No se pudo obtener detalle por UUID:', e);
     }
 
     const tier = getTierFromLevel(detailed);
-    // Detectar NLW Tier en tags/description (ej. 'Relentless')
     let nlwTierFromAredl = null;
     try {
       const tagsText = (() => {
@@ -457,10 +450,8 @@ module.exports = {
 
       const descText = (detailed.description || '').toLowerCase();
 
-      // buscar nombre directo
       if (tagsText.includes('relentless') || descText.includes('relentless')) nlwTierFromAredl = 'Relentless';
 
-      // buscar patrón NLW: <tier>
       if (!nlwTierFromAredl) {
         const combined = `${tagsText} ${descText}`;
         const m = combined.match(/nlw[:\-\s_]*([a-zA-Z]+)/i);
