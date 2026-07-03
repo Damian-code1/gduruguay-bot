@@ -107,6 +107,18 @@ module.exports = {
         .addUserOption((opt) => opt.setName('usuario').setDescription('Usuario a banear/desbanear').setRequired(true))
         .addBooleanOption((opt) => opt.setName('activo').setDescription('true = banear, false = desbanear').setRequired(true)),
     )
+    .addSubcommand((sub) =>
+      sub
+        .setName('give')
+        .setDescription('[Admin] Suma o resta aura manualmente a un usuario.')
+        .addUserOption((opt) => opt.setName('usuario').setDescription('Usuario a modificar').setRequired(true))
+        .addIntegerOption((opt) =>
+          opt
+            .setName('cantidad')
+            .setDescription('Cantidad a sumar (usá negativo para restar)')
+            .setRequired(true),
+        ),
+    )
     .addSubcommandGroup((group) =>
       group
         .setName('cd')
@@ -126,14 +138,14 @@ module.exports = {
     const guildId = interaction.guildId;
 
     // ── Subcomandos de administrador ──
-    if (sub === 'reset' || sub === 'ban' || (group === 'cd' && sub === 'reset')) {
+    if (sub === 'reset' || sub === 'ban' || sub === 'give' || (group === 'cd' && sub === 'reset')) {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return replyError(interaction, 'Este comando requiere permisos de **Administrador**.');
       }
 
       const target = interaction.options.getUser('usuario', true);
 
-      if (sub === 'reset') {
+      if (sub === 'reset' && !group) {
         await resetUser(guildId, target.id);
         const embed = new EmbedBuilder()
           .setTitle('🧹 Aura reseteada')
@@ -149,6 +161,24 @@ module.exports = {
           .setTitle(activo ? '🚫 Usuario baneado de aura' : '✅ Usuario desbaneado de aura')
           .setColor(activo ? config.colors.danger : config.colors.success)
           .setDescription(`<@${target.id}> ${activo ? 'ya no puede usar el sistema de aura ni aparecer en el top.' : 'puede volver a usar el sistema de aura.'}`);
+        return replyEmbed(interaction, { embed, pings: false });
+      }
+
+      if (sub === 'give') {
+        const cantidad = interaction.options.getInteger('cantidad', true);
+        const before = await getAura(guildId, target.id);
+        const nextValue = clampAura(before.aura + cantidad);
+        await setAura(guildId, target.id, nextValue);
+
+        const embed = new EmbedBuilder()
+          .setTitle(cantidad >= 0 ? '🎁 Aura otorgada' : '📉 Aura descontada')
+          .setColor(cantidad >= 0 ? config.colors.success : config.colors.danger)
+          .setDescription(
+            [
+              `${cantidad >= 0 ? 'Se sumaron' : 'Se restaron'} **${formatAura(Math.abs(cantidad))} aura** a <@${target.id}>.`,
+              `Aura total ahora: **${formatAura(nextValue)}**`,
+            ].join('\n'),
+          );
         return replyEmbed(interaction, { embed, pings: false });
       }
 
