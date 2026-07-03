@@ -59,16 +59,6 @@ async function assignDepartmentToMember(member, departmentName) {
     return { ok: false, reason: 'role_missing' };
   }
 
-  const botMember = member.guild.members.me;
-
-  if (botMember.roles.highest.comparePositionTo(role) <= 0) {
-    return { ok: false, reason: 'hierarchy' };
-  }
-
-  if (!member.manageable) {
-    return { ok: false, reason: 'member_hierarchy' };
-  }
-
   if (member.roles.cache.has(role.id)) {
     return { ok: true, roleId: role.id, previousRoleId: null, alreadyHad: true };
   }
@@ -81,7 +71,14 @@ async function assignDepartmentToMember(member, departmentName) {
     await member.roles.remove(previousRole.id, 'Cambio de departamento').catch(() => null);
   }
 
-  await member.roles.add(role.id, `Departamento asignado: ${departmentName}`);
+  try {
+    await member.roles.add(role.id, `Departamento asignado: ${departmentName}`);
+  } catch (err) {
+    if (err?.code === 50013) {
+      return { ok: false, reason: 'hierarchy' };
+    }
+    throw err;
+  }
 
   return { ok: true, roleId: role.id, previousRoleId: previousRole?.id || null, alreadyHad: false };
 }
