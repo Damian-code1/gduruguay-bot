@@ -12,7 +12,7 @@ const deptCooldowns = new Map();
 const ASSIGN_FAIL_MESSAGES = {
   not_configured: null, // el mensaje no matcheó ningún departamento válido -> se ignora en silencio
   role_missing: '⚠️ El rol de ese departamento fue eliminado del servidor. Avisale a un admin.',
-  not_manageable: '⚠️ No tengo permisos para asignarte ese rol (jerarquía).',
+  member_hierarchy: '⚠️ No puedo modificar tus roles porque tenés un rol igual o superior al mío en la jerarquía del server. Avisale a un admin.',
   hierarchy: '⚠️ El rol de ese departamento está por encima del mío, no lo puedo asignar. Avisale a un admin.',
 };
 
@@ -32,21 +32,35 @@ async function handleDepartmentChannel(message) {
   }
   deptCooldowns.set(message.author.id, now);
 
-  const result = await assignDepartmentToMember(message.member, dept.name);
+  console.log(`[dept-debug] member=${message.member ? message.member.id : 'NULL'} manageable=${message.member?.manageable}`);
+
+  let result;
+  try {
+    result = await assignDepartmentToMember(message.member, dept.name);
+  } catch (err) {
+    console.error('[dept-debug] assignDepartmentToMember lanzó excepción:', err);
+    return true;
+  }
+
+  console.log(`[dept-debug] resultado assign:`, JSON.stringify(result));
 
   if (!result.ok) {
     const text = ASSIGN_FAIL_MESSAGES[result.reason];
-    if (text) await message.reply({ content: text }).catch(() => null);
+    if (text) {
+      await message.reply({ content: text }).catch((err) => console.error('[dept-debug] error al reply (fail):', err));
+    } else {
+      console.log(`[dept-debug] result.ok=false reason=${result.reason} (sin mensaje mapeado)`);
+    }
     return true;
   }
 
   if (result.alreadyHad) {
-    await message.reply({ content: `📍 Ya tenías el departamento **${dept.name}**.` }).catch(() => null);
+    await message.reply({ content: `📍 Ya tenías el departamento **${dept.name}**.` }).catch((err) => console.error('[dept-debug] error al reply (alreadyHad):', err));
     return true;
   }
 
   const swapText = result.previousRoleId ? ` (se removió tu departamento anterior)` : '';
-  await message.reply({ content: `✅ Te asigné el departamento **${dept.name}**${swapText}.` }).catch(() => null);
+  await message.reply({ content: `✅ Te asigné el departamento **${dept.name}**${swapText}.` }).catch((err) => console.error('[dept-debug] error al reply (success):', err));
   return true;
 }
 
@@ -57,9 +71,10 @@ module.exports = {
 
     try {
       const handled = await handleDepartmentChannel(message);
+      console.log(`[dept-debug] handleDepartmentChannel devolvió handled=${handled}`);
       if (handled) return; // no seguir con AFK si el mensaje era del canal de departamentos
     } catch (err) {
-      console.error('Error en auto-detección de departamento:', err);
+      console.error('[dept-debug] Error en auto-detección de departamento (excepción no capturada):', err);
     }
 
     // Si el autor estaba AFK, se le quita el estado y se avisa (mensaje normal, pinguea).
