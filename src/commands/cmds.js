@@ -13,7 +13,104 @@ const {
 } = require('discord.js');
 const { isStaff } = require('../utils/staffRolesStore');
 
-const PAGE_SIZE = 6;
+const PAGE_SIZE = 1; // 1 categoría completa por página
+
+// Comandos cuyo `visibility` declarado no coincide con su chequeo real de
+// permisos (todos exigen Administrator internamente pese a decir 'public').
+// Se fuerza acá para que /cmds los categorice y oculte correctamente.
+const FORCE_ADMIN_VISIBILITY = new Set([
+  'dm', 'dmcheck', 'dmreplies', 'depchannel', 'cmdchannel',
+]);
+
+// Categorías con orden fijo, ícono y ejemplos de uso por comando/subcomando.
+const CATEGORIES = [
+  {
+    key: 'economia',
+    label: '💠 Economía — Aura',
+    commands: {
+      aura: [
+        { sub: 'claim',    usage: '/aura claim' },
+        { sub: 'status',   usage: '/aura status' },
+        { sub: 'top',      usage: '/aura top' },
+        { sub: 'give',     usage: '/aura give usuario:@user cantidad:1000' },
+        { sub: 'remove',   usage: '/aura remove usuario:@user cantidad:1000' },
+        { sub: 'reset',    usage: '/aura reset usuario:@user' },
+        { sub: 'ban',      usage: '/aura ban usuario:@user activo:true' },
+        { sub: 'cd reset', usage: '/aura cd reset usuario:@user' },
+      ],
+    },
+  },
+  {
+    key: 'moderacion',
+    label: '🛡️ Moderación',
+    commands: {
+      ban:         [{ usage: '/ban usuario:@user razon:texto' }],
+      unban:       [{ usage: '/unban id:123456789012345678' }],
+      kick:        [{ usage: '/kick usuario:@user razon:texto' }],
+      mute: [
+        { sub: 'usuario',     usage: '/mute usuario usuario:@user duracion:1h razon:texto' },
+        { sub: 'role-create', usage: '/mute role-create' },
+        { sub: 'role-check',  usage: '/mute role-check' },
+      ],
+      unmute:      [{ usage: '/unmute usuario:@user' }],
+      warn:        [{ usage: '/warn usuario:@user razon:texto' }],
+      warns:       [{ usage: '/warns usuario:@user' }],
+      clearwarns:  [{ usage: '/clearwarns usuario:@user' }],
+      clear:       [{ usage: '/clear cantidad:20' }],
+      slowmode:    [{ usage: '/slowmode segundos:10' }],
+      modlogs:     [{ usage: '/modlogs usuario:@user' }],
+      roleadd:     [{ usage: '/roleadd usuario:@user rol:nombre' }],
+      rolerem:     [{ usage: '/rolerem usuario:@user rol:nombre' }],
+      staffrole:   [{ usage: '/staffrole rol:@rol' }],
+      autorole: [
+        { sub: 'set',   usage: '/autorole set rol:@rol' },
+        { sub: 'check', usage: '/autorole check' },
+        { sub: 'clear', usage: '/autorole clear' },
+      ],
+    },
+  },
+  {
+    key: 'departamentos',
+    label: '🗺️ Departamentos',
+    commands: {
+      dephelp: [{ usage: '/dephelp' }],
+    },
+  },
+  {
+    key: 'geometry-dash',
+    label: '🎮 Geometry Dash',
+    commands: {
+      levelsearch: [{ usage: '/levelsearch nombre:NombreDelNivel' }],
+      tier:        [{ usage: '/tier id:12345678' }],
+    },
+  },
+  {
+    key: 'utilidad',
+    label: '🔧 Utilidad',
+    commands: {
+      afk:  [{ usage: '/afk razon:Volviendo enseguida' }],
+      ping: [{ usage: '/ping' }],
+      cmds: [{ usage: '/cmds' }],
+    },
+  },
+  {
+    key: 'administracion',
+    label: '👑 Administración',
+    commands: {
+      say:         [{ usage: '/say canal:#canal mensaje:texto' }],
+      dm:          [{ usage: '/dm usuario:@user mensaje:texto' }],
+      dmcheck:     [{ usage: '/dmcheck' }],
+      dmreplies:   [{ usage: '/dmreplies' }],
+      depchannel:  [{ usage: '/depchannel canal:#canal' }],
+      cmdchannel:  [{ usage: '/cmdchannel canal:#canal' }],
+    },
+  },
+];
+
+function effectiveVisibility(cmd) {
+  if (FORCE_ADMIN_VISIBILITY.has(cmd.data.name)) return 'admin';
+  return cmd.visibility || 'public';
+}
 
 /**
  * Determina qué comandos puede ver un miembro:
@@ -26,39 +123,68 @@ async function getVisibleCommands(interaction) {
   const isAdmin = interaction.member?.permissions?.has('Administrator') ?? false;
   const staff = await isStaff(interaction.member);
 
-  return allCommands
-    .filter((cmd) => {
-      const vis = cmd.visibility || 'public';
-      if (vis === 'public') return true;
-      if (vis === 'staff') return staff;
-      if (vis === 'admin') return isAdmin;
-      return false;
-    })
-    .sort((a, b) => a.data.name.localeCompare(b.data.name));
+  const visibleNames = new Set(
+    allCommands
+      .filter((cmd) => {
+        const vis = effectiveVisibility(cmd);
+        if (vis === 'public') return true;
+        if (vis === 'staff') return staff;
+        if (vis === 'admin') return isAdmin;
+        return false;
+      })
+      .map((cmd) => cmd.data.name),
+  );
+
+  // Arma las categorías solo con los comandos que el usuario puede ver,
+  // preservando el orden y agrupación fija de CATEGORIES.
+  return CATEGORIES
+    .map((cat) => ({
+      ...cat,
+      entries: Object.entries(cat.commands).filter(([name]) => visibleNames.has(name)),
+    }))
+    .filter((cat) => cat.entries.length > 0);
 }
 
-function buildPageContainer(commands, page, totalPages) {
+function buildPageContainer(categories, page, totalPages) {
   const container = new ContainerBuilder();
 
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent('### Comandos disponibles'),
+    new TextDisplayBuilder().setContent('### 📖 Comandos disponibles'),
   );
   container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
-  const start = page * PAGE_SIZE;
-  const pageCommands = commands.slice(start, start + PAGE_SIZE);
+  const cat = categories[page];
 
-  const listText = pageCommands
-    .map((cmd) => `**/${cmd.data.name}**\n${cmd.data.description}`)
-    .join('\n\n');
+  if (!cat) {
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent('No hay comandos disponibles para vos.'),
+    );
+    return container;
+  }
 
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(listText || 'No hay comandos disponibles para vos.'),
+    new TextDisplayBuilder().setContent(`## ${cat.label}`),
+  );
+
+  let cmdIndex = 0;
+  const blocks = cat.entries.map(([name, variants]) => {
+    cmdIndex += 1;
+    const usageLines = variants
+      .map((v) => {
+        const label = v.sub ? `\`/${name} ${v.sub}\`` : `\`/${name}\``;
+        return `> ↳ **Uso:** ${label}\n> \`${v.usage}\``;
+      })
+      .join('\n');
+    return `**${cmdIndex}- /${name}**\n|\n${usageLines}`;
+  });
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(blocks.join('\n\n')),
   );
 
   container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
   container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(`Página ${page + 1} de ${totalPages} · ${commands.length} comando(s)`),
+    new TextDisplayBuilder().setContent(`Categoría ${page + 1} de ${totalPages} · ${cat.entries.length} comando(s)`),
   );
 
   return container;
@@ -89,11 +215,11 @@ module.exports = {
     .setDMPermission(false),
 
   async execute(interaction) {
-    const commands = await getVisibleCommands(interaction);
-    const totalPages = Math.max(1, Math.ceil(commands.length / PAGE_SIZE));
+    const categories = await getVisibleCommands(interaction);
+    const totalPages = Math.max(1, categories.length);
     const page = 0;
 
-    const container = buildPageContainer(commands, page, totalPages);
+    const container = buildPageContainer(categories, page, totalPages);
     const row = buildButtons(interaction.user.id, page, totalPages);
 
     await interaction.reply({
@@ -111,11 +237,11 @@ module.exports = {
       });
     }
 
-    const commands = await getVisibleCommands(interaction);
-    const totalPages = Math.max(1, Math.ceil(commands.length / PAGE_SIZE));
+    const categories = await getVisibleCommands(interaction);
+    const totalPages = Math.max(1, categories.length);
     const page = Math.min(Math.max(targetPage, 0), totalPages - 1);
 
-    const container = buildPageContainer(commands, page, totalPages);
+    const container = buildPageContainer(categories, page, totalPages);
     const row = buildButtons(ownerId, page, totalPages);
 
     await interaction.update({
