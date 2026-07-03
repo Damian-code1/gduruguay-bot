@@ -64,9 +64,10 @@ async function resetUser(guildId, userId) {
 
 async function getAuraLeaderboard(guildId, limit, direction = 'desc') {
   const dir = direction === 'asc' ? 'ASC' : 'DESC';
+  const safeLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 10));
   const [rows] = await query(
-    `SELECT user_id, aura FROM aura_users WHERE guild_id = ? AND banned = 0 ORDER BY aura ${dir} LIMIT ?`,
-    [guildId, limit],
+    `SELECT user_id, aura FROM aura_users WHERE guild_id = ? AND banned = 0 ORDER BY aura ${dir} LIMIT ${safeLimit}`,
+    [guildId],
   );
   return rows.map((r) => ({ userId: r.user_id, aura: Number(r.aura) }));
 }

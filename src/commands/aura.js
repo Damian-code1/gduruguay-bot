@@ -158,16 +158,30 @@ module.exports = {
       }
     }
 
-    // ── Top: único público en embed normal ──
+    // ── Top: embed normal público con 2 columnas (positiva / negativa) ──
     if (sub === 'top') {
-      const entries = await getAuraLeaderboard(guildId, TOP_LIMIT, 'desc');
+      const [positivos, negativos] = await Promise.all([
+        getAuraLeaderboard(guildId, TOP_LIMIT, 'desc'),
+        getAuraLeaderboard(guildId, TOP_LIMIT, 'asc'),
+      ]);
+
+      const positivosFiltrados = positivos.filter((e) => e.aura > 0);
+      const negativosFiltrados = negativos.filter((e) => e.aura < 0).reverse();
+
+      const colPositiva = positivosFiltrados.length
+        ? positivosFiltrados.map((e, i) => `**${i + 1}.** <@${e.userId}> — **${formatAura(e.aura)}**`).join('\n')
+        : 'Sin datos todavía.';
+
+      const colNegativa = negativosFiltrados.length
+        ? negativosFiltrados.map((e, i) => `**${i + 1}.** <@${e.userId}> — **${formatAura(e.aura)}**`).join('\n')
+        : 'Sin datos todavía.';
+
       const embed = new EmbedBuilder()
         .setTitle('🏆 Top Aura')
         .setColor(config.colors.primary)
-        .setDescription(
-          entries.length
-            ? entries.map((e, i) => `**${i + 1}.** <@${e.userId}> — **${formatAura(e.aura)} aura**`).join('\n')
-            : 'Todavía no hay datos de aura en este servidor.',
+        .addFields(
+          { name: '✨ Aura Positiva', value: colPositiva, inline: true },
+          { name: '🧿 Aura Negativa', value: colNegativa, inline: true },
         )
         .setFooter({ text: interaction.guild.name })
         .setTimestamp();
@@ -237,8 +251,10 @@ module.exports = {
             '',
             `Aura total: **${formatAura(nextValue)}**`,
           ].join('\n'),
-        );
-      return replyEmbed(interaction, { embed, pings: false });
+        )
+        .setFooter({ text: interaction.user.tag })
+        .setTimestamp();
+      return replyEmbed(interaction, { embed, pings: true });
     }
 
     return replyError(interaction, 'Subcomando desconocido.');
