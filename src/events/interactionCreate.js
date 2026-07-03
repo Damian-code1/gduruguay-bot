@@ -95,16 +95,32 @@ module.exports = {
       }
 
       if (namespace === 'cmds' && interaction.isButton()) {
-        const [, ownerId, pageStr] = interaction.customId.split(':');
+        const [, ownerId, catIndexStr, pageStr] = interaction.customId.split(':');
         const command = interaction.client.commands.get('cmds');
         if (!command?.handleButton) return;
 
         try {
-          await command.handleButton(interaction, ownerId, parseInt(pageStr, 10));
+          await command.handleButton(interaction, ownerId, catIndexStr, pageStr);
         } catch (error) {
           console.error('Error manejando botón de /cmds:', error);
           await interaction
             .reply({ content: 'Ocurrió un error al cambiar de página.', flags: MessageFlags.Ephemeral })
+            .catch(() => null);
+        }
+        return;
+      }
+
+      if (namespace === 'cmdscat' && interaction.isStringSelectMenu()) {
+        const [, ownerId] = interaction.customId.split(':');
+        const command = interaction.client.commands.get('cmds');
+        if (!command?.handleSelect) return;
+
+        try {
+          await command.handleSelect(interaction, ownerId);
+        } catch (error) {
+          console.error('Error manejando dropdown de /cmds:', error);
+          await interaction
+            .reply({ content: 'Ocurrió un error al cambiar de categoría.', flags: MessageFlags.Ephemeral })
             .catch(() => null);
         }
         return;
