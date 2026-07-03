@@ -1,15 +1,17 @@
 'use strict';
 
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { replyEmbed, replyError } = require('../utils/respond');
+const { MessageFlags } = require('discord.js');
 const { isStaff } = require('../utils/staffRolesStore');
 const { parseDuration } = require('../utils/timeParser');
 const {
   createGiveaway,
   setGiveawayMessageId,
-  buildGiveawayEmbed,
+  buildGiveawayComponents,
   buildGiveawayButton,
 } = require('../utils/giveawayRuntime');
+
+const COMPONENTS_V2_FLAG = 32768;
 
 module.exports = {
   visibility: 'staff',
@@ -26,7 +28,9 @@ module.exports = {
 
   async execute(interaction) {
     const staff = await isStaff(interaction.member);
-    if (!staff) return replyError(interaction, 'Solo staff puede crear giveaways.');
+    if (!staff) {
+      return interaction.reply({ content: '❌ Solo staff puede crear giveaways.', flags: MessageFlags.Ephemeral });
+    }
 
     const prize = interaction.options.getString('premio', true);
     const durationRaw = interaction.options.getString('duracion', true);
@@ -36,7 +40,7 @@ module.exports = {
 
     const durationMs = parseDuration(durationRaw);
     if (!durationMs || durationMs <= 0) {
-      return replyError(interaction, 'Duración inválida. Usá algo como `1h`, `30m`, `2d`.');
+      return interaction.reply({ content: '❌ Duración inválida. Usá algo como `1h`, `30m`, `2d`.', flags: MessageFlags.Ephemeral });
     }
 
     const endsAt = new Date(Date.now() + durationMs);
@@ -62,14 +66,12 @@ module.exports = {
       ends_at: endsAt,
     };
 
-    const embed = buildGiveawayEmbed(fakeGiveaway, 0);
-    const row = buildGiveawayButton(giveawayId);
+    const content = buildGiveawayComponents(fakeGiveaway, 0);
+    const buttonRows = buildGiveawayButton(giveawayId);
 
-    const sent = await interaction.channel.send({ embeds: [embed], components: [row] });
+    const sent = await interaction.channel.send({ flags: COMPONENTS_V2_FLAG, components: [...content, ...buttonRows] });
     await setGiveawayMessageId(giveawayId, sent.id);
 
-    return replyEmbed(interaction, {
-      embed: { data: { title: '✅ Giveaway creado', description: `Se publicó el giveaway de **${prize}**.` } },
-    });
+    return interaction.reply({ content: `✅ Giveaway de **${prize}** publicado.`, flags: MessageFlags.Ephemeral });
   },
 };

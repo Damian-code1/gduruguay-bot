@@ -5,7 +5,9 @@ const config = require('../config');
 const { handleLevelSearchInteraction } = require('../utils/levelSearchInteractions');
 const { assignDepartmentToMember } = require('../utils/departmentAssign');
 const { buildDmLogPayload } = require('../utils/dmLogUi');
-const { getGiveaway, hasEntry, addEntry, getEntryCount, checkGiveawayRequirements, buildGiveawayEmbed, buildGiveawayButton } = require('../utils/giveawayRuntime');
+const { getGiveaway, hasEntry, addEntry, getEntryCount, checkGiveawayRequirements, buildGiveawayComponents, buildGiveawayButton } = require('../utils/giveawayRuntime');
+
+const COMPONENTS_V2_FLAG = 32768;
 const { handlePollVote } = require('../utils/pollRuntime');
 
 const DEPT_ASSIGN_FAIL_MESSAGES = {
@@ -154,9 +156,9 @@ module.exports = {
           await addEntry(giveawayId, interaction.user.id);
           const entryCount = await getEntryCount(giveawayId);
 
-          const embed = buildGiveawayEmbed(giveaway, entryCount);
-          const row = buildGiveawayButton(giveawayId);
-          await interaction.message.edit({ embeds: [embed], components: [row] }).catch(() => null);
+          const content = buildGiveawayComponents(giveaway, entryCount);
+          const buttonRows = buildGiveawayButton(giveawayId);
+          await interaction.message.edit({ flags: COMPONENTS_V2_FLAG, components: [...content, ...buttonRows] }).catch(() => null);
 
           return interaction.reply({ content: '🎉 ¡Ya estás participando en el giveaway!', flags: MessageFlags.Ephemeral });
         } catch (error) {

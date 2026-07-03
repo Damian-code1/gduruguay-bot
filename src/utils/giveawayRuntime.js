@@ -1,10 +1,11 @@
 'use strict';
 
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const config = require('../config');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { query } = require('./database');
 const { getMessageCount } = require('./messageCountStore');
 const { getInviteCount } = require('./inviteStore');
+
+const COMPONENTS_V2_FLAG = 32768;
 
 async function createGiveaway({ guildId, channelId, prize, winnersCount, minMessages, minInvites, hostId, endsAt }) {
   const [result] = await query(
@@ -61,23 +62,29 @@ async function checkGiveawayRequirements(guild, userId, giveaway) {
   return failed;
 }
 
-function buildGiveawayEmbed(giveaway, entryCount, ended = false) {
+function buildGiveawayComponents(giveaway, entryCount, ended = false) {
   const endsAtMs = new Date(giveaway.ends_at).getTime();
-  const lines = [
-    `🎁 **Premio:** ${giveaway.prize}`,
-    `🏆 **Ganadores:** ${giveaway.winners_count}`,
-    ended ? `⏰ **Finalizó**` : `⏰ **Termina:** <t:${Math.floor(endsAtMs / 1000)}:R>`,
-    `👥 **Participantes:** ${entryCount}`,
-  ];
-  if (giveaway.min_messages > 0) lines.push(`💬 **Requisito:** ${giveaway.min_messages} mensajes`);
-  if (giveaway.min_invites > 0) lines.push(`📨 **Requisito:** ${giveaway.min_invites} invites`);
-  lines.push(`👤 **Organiza:** <@${giveaway.host_id}>`);
+  const reqLines = [];
+  if (giveaway.min_messages > 0) reqLines.push(`💬 Requisito: **${giveaway.min_messages}** mensajes`);
+  if (giveaway.min_invites > 0) reqLines.push(`📨 Requisito: **${giveaway.min_invites}** invites`);
 
-  return new EmbedBuilder()
-    .setTitle(ended ? '🎉 Giveaway finalizado' : '🎉 ¡Giveaway activo!')
-    .setDescription(lines.join('\n'))
-    .setColor(ended ? config.colors.warning : config.colors.primary)
-    .setFooter({ text: ended ? 'Este giveaway ya terminó' : 'Apretá el botón para participar' });
+  const content =
+    `# 🎉 ${ended ? 'Giveaway finalizado' : 'Giveaway'}\n\n` +
+    `## ${giveaway.prize}\n\n` +
+    `🏆 Ganadores: **${giveaway.winners_count}**\n` +
+    (ended ? `⏰ Finalizó` : `⏰ Termina: <t:${Math.floor(endsAtMs / 1000)}:R>`) + '\n' +
+    `👥 Participantes: **${entryCount}**\n` +
+    (reqLines.length ? reqLines.join('\n') + '\n' : '') +
+    `👤 Organiza: <@${giveaway.host_id}>`;
+
+  return [
+    {
+      type: 17,
+      accent_color: null,
+      spoiler: false,
+      components: [{ type: 10, content }],
+    },
+  ];
 }
 
 function buildGiveawayButton(giveawayId, disabled = false) {
@@ -88,7 +95,7 @@ function buildGiveawayButton(giveawayId, disabled = false) {
       .setStyle(ButtonStyle.Success)
       .setDisabled(disabled),
   );
-  return row;
+  return [row];
 }
 
 async function endGiveaway(client, giveawayId) {
@@ -111,12 +118,12 @@ async function endGiveaway(client, giveawayId) {
     winners.push(pool.splice(idx, 1)[0]);
   }
 
-  const embed = buildGiveawayEmbed(giveaway, userIds.length, true);
-  const row = buildGiveawayButton(giveawayId, true);
+  const content = buildGiveawayComponents(giveaway, userIds.length, true);
+  const buttonRows = buildGiveawayButton(giveawayId, true);
 
   if (giveaway.message_id) {
     const message = await channel.messages.fetch(giveaway.message_id).catch(() => null);
-    if (message) await message.edit({ embeds: [embed], components: [row] }).catch(() => null);
+    if (message) await message.edit({ flags: COMPONENTS_V2_FLAG, components: [...content, ...buttonRows] }).catch(() => null);
   }
 
   if (!winners.length) {
@@ -145,7 +152,7 @@ module.exports = {
   hasEntry,
   getEntryCount,
   checkGiveawayRequirements,
-  buildGiveawayEmbed,
+  buildGiveawayComponents,
   buildGiveawayButton,
   endGiveaway,
   checkExpiredGiveaways,

@@ -1,15 +1,15 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { replyError } = require('../utils/respond');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const { isStaff } = require('../utils/staffRolesStore');
-const { createPoll, buildPollEmbed, buildPollButtons } = require('../utils/pollRuntime');
+const { parseDuration } = require('../utils/timeParser');
+const { createPoll } = require('../utils/pollRuntime');
 
 module.exports = {
   visibility: 'staff',
   data: new SlashCommandBuilder()
     .setName('poll')
-    .setDescription('Crea una encuesta simple con botones.')
+    .setDescription('Crea una encuesta con votación por botones (ephemeral).')
     .addStringOption((opt) => opt.setName('pregunta').setDescription('La pregunta de la encuesta').setRequired(true))
     .addStringOption((opt) => opt.setName('opcion1').setDescription('Opción 1').setRequired(true))
     .addStringOption((opt) => opt.setName('opcion2').setDescription('Opción 2').setRequired(true))
@@ -21,12 +21,15 @@ module.exports = {
     .addStringOption((opt) => opt.setName('opcion8').setDescription('Opción 8'))
     .addStringOption((opt) => opt.setName('opcion9').setDescription('Opción 9'))
     .addStringOption((opt) => opt.setName('opcion10').setDescription('Opción 10'))
+    .addStringOption((opt) => opt.setName('duracion').setDescription('Ej: 30m, 1h, 2d. Vacío = sin límite'))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
   async execute(interaction) {
     const staff = await isStaff(interaction.member);
-    if (!staff) return replyError(interaction, 'Solo staff puede crear encuestas.');
+    if (!staff) {
+      return interaction.reply({ content: '❌ Solo staff puede crear encuestas.', flags: MessageFlags.Ephemeral });
+    }
 
     const question = interaction.options.getString('pregunta', true);
     const options = [];
@@ -35,14 +38,15 @@ module.exports = {
       if (val) options.push(val);
     }
 
-    if (options.length < 2) return replyError(interaction, 'Necesitás al menos 2 opciones.');
-    if (options.length > 10) return replyError(interaction, 'Máximo 10 opciones.');
+    if (options.length < 2) {
+      return interaction.reply({ content: '❌ Necesitás al menos 2 opciones.', flags: MessageFlags.Ephemeral });
+    }
 
-    const pollId = createPoll(question, options);
-    const embed = buildPollEmbed(question, options, new Map());
-    const rows = buildPollButtons(pollId, options);
+    const durationRaw = interaction.options.getString('duracion');
+    const durationMs = durationRaw ? parseDuration(durationRaw) : 0;
 
-    await interaction.channel.send({ embeds: [embed], components: rows });
-    return interaction.reply({ content: '✅ Encuesta publicada.', flags: 64 });
+    await createPoll(interaction.channel, question, options, durationMs);
+
+    return interaction.reply({ content: '✅ Encuesta publicada.', flags: MessageFlags.Ephemeral });
   },
 };
